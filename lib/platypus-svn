@@ -337,7 +337,7 @@ assert-environment-ok() {
 
   # Must run from repo root
   [[ -z $(git rev-parse --show-prefix 2>/dev/null) ]] ||
-    error "Must run from top level directory of the repository."
+    error "Must run from top level directory (root) of the repository."
 
   # Check we're not on special branches
   local current_branch
@@ -351,7 +351,7 @@ assert-environment-ok() {
 
   # Must be on a branch (not detached HEAD)
   [[ -n $current_branch ]] ||
-    error "Must be on a branch to run this command (HEAD is detached)."
+    error "Must be on a branch to run this command. HEAD is detached."
 }
 
 #------------------------------------------------------------------------------
@@ -391,7 +391,7 @@ git:assert-clean-worktree() {
   
   # Check for staged changes
   if ! git diff-index --quiet --cached HEAD 2>/dev/null; then
-    error "Index has staged changes. Commit or unstage them first."
+    error "Index has staged (uncommitted) changes. Commit or unstage them first."
   fi
 }
 
