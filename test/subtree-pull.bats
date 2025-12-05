@@ -1,58 +1,22 @@
 #!/usr/bin/env bats
 #
-# pull.bats - Tests for 'platypus subtree pull' command
+# subtree-pull.bats - Tests for 'platypus subtree pull' command
 #
 
 load test_helper
-
-#------------------------------------------------------------------------------
-# Helper to set up a repo with a subtree
-#------------------------------------------------------------------------------
-
-setup_with_subtree() {
-  local repo upstream work_dir
-  
-  # Create upstream repo
-  upstream=$(create_bare_repo "upstream")
-  work_dir=$(create_repo "upstream_work")
-  (
-    cd "$work_dir"
-    echo "initial content" > file.txt
-    git add file.txt
-    git commit -m "Initial commit"
-    git remote add origin "$upstream"
-    git push -u origin main
-  ) >/dev/null
-  
-  # Create monorepo and add subtree
-  repo=$(create_monorepo)
-  (
-    cd "$repo"
-    platypus subtree add lib/foo "$upstream" main
-  ) >/dev/null
-  
-  echo "$repo|$upstream|$work_dir"
-}
 
 #------------------------------------------------------------------------------
 # Basic pull tests
 #------------------------------------------------------------------------------
 
 @test "pull merges upstream changes" {
-  local setup repo upstream work_dir
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
-  work_dir=$(echo "$setup" | cut -d'|' -f3)
+  local setup repo work_dir
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
   
   # Add new content upstream
-  (
-    cd "$work_dir"
-    echo "new content" > new_file.txt
-    git add new_file.txt
-    git commit -m "Add new file"
-    git push origin main
-  ) >/dev/null
+  upstream_add_file "$work_dir" "new_file.txt"
   
   cd "$repo"
   
@@ -65,27 +29,17 @@ setup_with_subtree() {
 }
 
 @test "pull updates config with new upstream commit" {
-  local setup repo upstream work_dir
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
-  work_dir=$(echo "$setup" | cut -d'|' -f3)
+  local setup repo work_dir
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
   
-  # Get initial upstream SHA
   cd "$repo"
   local initial_upstream
   initial_upstream=$(git config -f .gitsubtrees subtree.lib/foo.upstream)
   
   # Add new content upstream
-  (
-    cd "$work_dir"
-    echo "new content" > new_file.txt
-    git add new_file.txt
-    git commit -m "Add new file"
-    git push origin main
-  ) >/dev/null
-  
-  cd "$repo"
+  upstream_add_file "$work_dir" "new_file.txt"
   
   run platypus subtree pull lib/foo
   [ "$status" -eq 0 ]
@@ -124,20 +78,13 @@ setup_with_subtree() {
 #------------------------------------------------------------------------------
 
 @test "pull --dry-run shows what would happen" {
-  local setup repo upstream work_dir
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
-  work_dir=$(echo "$setup" | cut -d'|' -f3)
+  local setup repo work_dir
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
   
   # Add new content upstream
-  (
-    cd "$work_dir"
-    echo "new content" > new_file.txt
-    git add new_file.txt
-    git commit -m "Add new file"
-    git push origin main
-  ) >/dev/null
+  upstream_add_file "$work_dir" "new_file.txt"
   
   cd "$repo"
   

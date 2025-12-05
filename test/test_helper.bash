@@ -227,3 +227,80 @@ assert_git_config() {
   fi
 }
 
+#------------------------------------------------------------------------------
+# Subtree test helpers
+#------------------------------------------------------------------------------
+
+# Create an upstream repo with a working directory for making changes
+# Returns: "bare_dir|work_dir" (pipe-separated)
+# Usage: create_upstream_with_workdir <name>
+create_upstream_with_workdir() {
+  local name=$1
+  local bare_dir work_dir
+  
+  bare_dir=$(create_bare_repo "$name")
+  work_dir=$(create_repo "${name}_work")
+  
+  (
+    cd "$work_dir"
+    echo "initial content" > file.txt
+    git add file.txt
+    git commit -m "Initial commit"
+    git remote add origin "$bare_dir"
+    git push -u origin "$DEFAULT_BRANCH"
+  ) >/dev/null
+  
+  echo "$bare_dir|$work_dir"
+}
+
+# Create a monorepo with a subtree already added
+# Returns: "repo|upstream|work_dir" (pipe-separated)
+# Usage: setup_subtree_repo [prefix] [upstream_name]
+setup_subtree_repo() {
+  local prefix=${1:-lib/foo}
+  local upstream_name=${2:-upstream}
+  local repo upstream work_dir upstream_info
+  
+  upstream_info=$(create_upstream_with_workdir "$upstream_name")
+  upstream=$(echo "$upstream_info" | cut -d'|' -f1)
+  work_dir=$(echo "$upstream_info" | cut -d'|' -f2)
+  
+  repo=$(create_monorepo)
+  (
+    cd "$repo"
+    platypus subtree add "$prefix" "$upstream" main
+  ) >/dev/null
+  
+  echo "$repo|$upstream|$work_dir"
+}
+
+# Parse setup_subtree_repo output
+# Usage: parse_subtree_setup "$setup_output"
+#        REPO=$(parse_subtree_setup "$output" repo)
+parse_subtree_setup() {
+  local output=$1
+  local field=${2:-all}
+  
+  case "$field" in
+    repo)     echo "$output" | cut -d'|' -f1 ;;
+    upstream) echo "$output" | cut -d'|' -f2 ;;
+    workdir)  echo "$output" | cut -d'|' -f3 ;;
+    *)        echo "$output" ;;
+  esac
+}
+
+# Add content to upstream and push
+# Usage: upstream_add_file <work_dir> <filename> [content]
+upstream_add_file() {
+  local work_dir=$1
+  local filename=$2
+  local content=${3:-"content of $filename"}
+  
+  (
+    cd "$work_dir"
+    echo "$content" > "$filename"
+    git add "$filename"
+    git commit -m "Add $filename"
+    git push origin "$DEFAULT_BRANCH"
+  ) >/dev/null
+}

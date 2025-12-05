@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# modes.bats - Tests for --verbose, --quiet, --dry-run modes
+# subtree-modes.bats - Tests for --verbose, --quiet, --dry-run modes
 #
 
 load test_helper
@@ -134,36 +134,17 @@ setup() {
 }
 
 @test "pull --dry-run doesn't change files" {
-  local repo upstream work_dir
+  local setup repo work_dir
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
   
-  # Setup
-  upstream=$(create_bare_repo "upstream")
-  work_dir=$(create_repo "upstream_work")
-  (
-    cd "$work_dir"
-    echo "initial" > file.txt
-    git add file.txt
-    git commit -m "Initial"
-    git remote add origin "$upstream"
-    git push -u origin main
-  ) >/dev/null
-  
-  repo=$(create_monorepo)
   cd "$repo"
-  platypus subtree add lib/foo "$upstream" main >/dev/null
-  
-  # Add new content upstream
-  (
-    cd "$work_dir"
-    echo "new content" > new.txt
-    git add new.txt
-    git commit -m "Add new"
-    git push origin main
-  ) >/dev/null
-  
-  # Get current config state
   local before_upstream
   before_upstream=$(git config -f .gitsubtrees subtree.lib/foo.upstream)
+  
+  # Add new content upstream
+  upstream_add_file "$work_dir" "new.txt"
   
   run platypus subtree pull lib/foo --dry-run
   [ "$status" -eq 0 ]
@@ -178,23 +159,12 @@ setup() {
 }
 
 @test "push --dry-run doesn't push to remote" {
-  local repo upstream work_dir
+  local setup repo upstream
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  upstream=$(parse_subtree_setup "$setup" upstream)
   
-  # Setup
-  upstream=$(create_bare_repo "upstream")
-  work_dir=$(create_repo "upstream_work")
-  (
-    cd "$work_dir"
-    echo "initial" > file.txt
-    git add file.txt
-    git commit -m "Initial"
-    git remote add origin "$upstream"
-    git push -u origin main
-  ) >/dev/null
-  
-  repo=$(create_monorepo)
   cd "$repo"
-  platypus subtree add lib/foo "$upstream" main >/dev/null
   
   # Make local change
   echo "local change" > lib/foo/local.txt
@@ -214,4 +184,3 @@ setup() {
   after_head=$(git -C "$upstream" rev-parse HEAD)
   [ "$before_head" = "$after_head" ]
 }
-

@@ -1,38 +1,9 @@
 #!/usr/bin/env bats
 #
-# push.bats - Tests for 'platypus subtree push' command
+# subtree-push.bats - Tests for 'platypus subtree push' command
 #
 
 load test_helper
-
-#------------------------------------------------------------------------------
-# Helper to set up a repo with a subtree
-#------------------------------------------------------------------------------
-
-setup_with_subtree() {
-  local repo upstream work_dir
-  
-  # Create upstream repo
-  upstream=$(create_bare_repo "upstream")
-  work_dir=$(create_repo "upstream_work")
-  (
-    cd "$work_dir"
-    echo "initial content" > file.txt
-    git add file.txt
-    git commit -m "Initial commit"
-    git remote add origin "$upstream"
-    git push -u origin main
-  ) >/dev/null
-  
-  # Create monorepo and add subtree
-  repo=$(create_monorepo)
-  (
-    cd "$repo"
-    platypus subtree add lib/foo "$upstream" main
-  ) >/dev/null
-  
-  echo "$repo|$upstream|$work_dir"
-}
 
 #------------------------------------------------------------------------------
 # Basic push tests
@@ -40,10 +11,10 @@ setup_with_subtree() {
 
 @test "push sends local changes to upstream" {
   local setup repo upstream work_dir
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
-  work_dir=$(echo "$setup" | cut -d'|' -f3)
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
+  upstream=$(parse_subtree_setup "$setup" upstream)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
   
   cd "$repo"
   
@@ -65,10 +36,9 @@ setup_with_subtree() {
 }
 
 @test "push records splitSha for incremental optimization" {
-  local setup repo upstream
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
+  local setup repo
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
   
   cd "$repo"
   
@@ -88,10 +58,9 @@ setup_with_subtree() {
 }
 
 @test "second push succeeds and updates splitSha" {
-  local setup repo upstream
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
+  local setup repo
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
   
   cd "$repo"
   
@@ -146,10 +115,9 @@ setup_with_subtree() {
 #------------------------------------------------------------------------------
 
 @test "push --dry-run shows what would happen" {
-  local setup repo upstream
-  setup=$(setup_with_subtree)
-  repo=$(echo "$setup" | cut -d'|' -f1)
-  upstream=$(echo "$setup" | cut -d'|' -f2)
+  local setup repo
+  setup=$(setup_subtree_repo)
+  repo=$(parse_subtree_setup "$setup" repo)
   
   cd "$repo"
   
@@ -167,4 +135,3 @@ setup_with_subtree() {
   splitSha=$(git config -f .gitsubtrees subtree.lib/foo.splitSha 2>/dev/null || echo "")
   [ -z "$splitSha" ]
 }
-
