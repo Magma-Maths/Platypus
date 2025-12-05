@@ -144,6 +144,18 @@ add_and_commit() {
   git commit -m "$message"
 }
 
+# Create a file, add it, and commit in one step
+# Usage: add_commit <file> [content] [message]
+add_commit() {
+  local file=$1
+  local content=${2:-"content"}
+  local message=${3:-"Add $file"}
+  
+  echo "$content" > "$file"
+  git add "$file"
+  git commit -m "$message"
+}
+
 # Create a file with content
 # Usage: create_file <path> [content]
 create_file() {
@@ -305,4 +317,91 @@ upstream_add_file() {
     git commit -m "Add $filename"
     git push origin "$DEFAULT_BRANCH"
   ) >/dev/null
+}
+
+# Add a subtree (simulates adding a library)
+# Usage: add_subtree_commits <prefix> [num_commits] [name]
+add_subtree_commits() {
+  local prefix=$1
+  local num_commits=${2:-3}
+  local name=${3:-lib}
+  
+  # Create a separate repo for the "library"
+  local lib_dir="$TEST_TMP/${name}-upstream"
+  mkdir -p "$lib_dir"
+  (
+    cd "$lib_dir"
+    git init -b main
+    git config user.name "$GIT_AUTHOR_NAME"
+    git config user.email "$GIT_AUTHOR_EMAIL"
+    
+    for i in $(seq 1 "$num_commits"); do
+      echo "lib content $i" > "lib-file-$i.txt"
+      git add "lib-file-$i.txt"
+      git commit -m "Lib commit $i"
+    done
+  ) >/dev/null
+  
+  # Add as subtree (this creates a merge commit)
+  git subtree add --prefix="$prefix" "$lib_dir" main -m "Add $prefix subtree"
+}
+
+#------------------------------------------------------------------------------
+# Patch testing helpers
+#------------------------------------------------------------------------------
+
+# Create a repo with a base file for testing patches
+# Usage: create_patch_test_repo [name]
+create_patch_test_repo() {
+  local name=${1:-patch-test}
+  local dir
+  dir=$(create_repo "$name")
+  
+  (
+    cd "$dir"
+    echo "line 1" > file.txt
+    echo "line 2" >> file.txt
+    echo "line 3" >> file.txt
+    git add file.txt
+    git commit -m "Initial file"
+  ) >/dev/null
+  
+  echo "$dir"
+}
+
+# Generate a patch from changes
+# Usage: create_patch <original_file> <modified_file>
+create_patch() {
+  local original=$1
+  local modified=$2
+  
+  diff -u "$original" "$modified" || true
+}
+
+#------------------------------------------------------------------------------
+# Module sourcing helpers (for tests that need to source platypus modules)
+#------------------------------------------------------------------------------
+
+# Setup with platypus-subtree sourced (for config functions)
+# Usage: setup_with_subtree
+# Note: This replaces the default setup() for tests that need config: functions
+setup_with_subtree() {
+  # Call parent setup
+  rm -rf "$TEST_TMP"
+  mkdir -p "$TEST_TMP"
+  cd "$TEST_TMP"
+  
+  # Source platypus-subtree for config functions
+  source "$PLATYPUS_ROOT/lib/platypus-subtree"
+}
+
+# Setup with platypus-svn sourced (for internal functions)
+# Usage: setup_with_svn
+# Note: This replaces the default setup() for tests that need internal SVN functions
+setup_with_svn() {
+  # Call parent setup
+  rm -rf "$TEST_TMP"
+  mkdir -p "$TEST_TMP"
+  cd "$TEST_TMP"
+  source "$PLATYPUS_ROOT/lib/platypus-svn"
 }

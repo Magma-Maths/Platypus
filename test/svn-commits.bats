@@ -12,10 +12,7 @@ load test_helper
 
 # Source platypus-svn to access internal functions
 setup() {
-  rm -rf "$TEST_TMP"
-  mkdir -p "$TEST_TMP"
-  cd "$TEST_TMP"
-  source "$PLATYPUS_ROOT/lib/platypus-svn"
+  setup_with_svn
 }
 
 #------------------------------------------------------------------------------
@@ -24,6 +21,7 @@ setup() {
 
 # Creates a repo that looks like it has git-svn configured
 # (without actually needing SVN)
+# NOTE: This is SVN-specific and stays in this file
 create_mock_svn_repo() {
   local dir
   dir=$(create_repo "repo")
@@ -51,42 +49,6 @@ create_mock_svn_repo() {
   ) >/dev/null
   
   echo "$dir"
-}
-
-# Add a simple commit to main
-add_commit() {
-  local file=$1
-  local content=${2:-"content"}
-  local message=${3:-"Add $file"}
-  
-  echo "$content" > "$file"
-  git add "$file"
-  git commit -m "$message"
-}
-
-# Add a subtree (simulates adding a library)
-add_subtree_commits() {
-  local prefix=$1
-  local num_commits=${2:-3}
-  
-  # Create a separate repo for the "library"
-  local lib_dir="$TEST_TMP/lib-upstream"
-  mkdir -p "$lib_dir"
-  (
-    cd "$lib_dir"
-    git init -b main
-    git config user.name "Test"
-    git config user.email "test@test.com"
-    
-    for i in $(seq 1 "$num_commits"); do
-      echo "lib content $i" > "lib-file-$i.txt"
-      git add "lib-file-$i.txt"
-      git commit -m "Lib commit $i"
-    done
-  ) >/dev/null
-  
-  # Add as subtree (this creates a merge commit)
-  git subtree add --prefix="$prefix" "$lib_dir" main -m "Add $prefix subtree"
 }
 
 #------------------------------------------------------------------------------
@@ -156,19 +118,7 @@ add_subtree_commits() {
   add_commit "between.txt" "between" "Between subtrees"
   
   # Add second subtree
-  local lib2_dir="$TEST_TMP/lib2-upstream"
-  mkdir -p "$lib2_dir"
-  (
-    cd "$lib2_dir"
-    git init -b main
-    git config user.name "Test"
-    git config user.email "test@test.com"
-    echo "lib2" > lib2.txt
-    git add lib2.txt
-    git commit -m "Lib2 commit"
-  ) >/dev/null
-  
-  git subtree add --prefix="lib/bar" "$lib2_dir" main -m "Add lib/bar subtree"
+  add_subtree_commits "lib/bar" 1 "lib2"
   
   # Final main commit
   add_commit "final.txt" "final" "Final commit"

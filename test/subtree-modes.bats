@@ -8,10 +8,7 @@ load test_helper
 
 # Source platypus-subtree for config functions
 setup() {
-  rm -rf "$TEST_TMP"
-  mkdir -p "$TEST_TMP"
-  cd "$TEST_TMP"
-  source "$PLATYPUS_ROOT/lib/platypus-subtree"
+  setup_with_subtree
 }
 
 #------------------------------------------------------------------------------

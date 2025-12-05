@@ -9,35 +9,6 @@
 load test_helper
 
 #------------------------------------------------------------------------------
-# Helper functions
-#------------------------------------------------------------------------------
-
-# Create a repo with a base file for testing patches
-create_patch_test_repo() {
-  local dir
-  dir=$(create_repo "patch-test")
-  
-  (
-    cd "$dir"
-    echo "line 1" > file.txt
-    echo "line 2" >> file.txt
-    echo "line 3" >> file.txt
-    git add file.txt
-    git commit -m "Initial file"
-  ) >/dev/null
-  
-  echo "$dir"
-}
-
-# Generate a patch from changes
-create_patch() {
-  local original=$1
-  local modified=$2
-  
-  diff -u "$original" "$modified" || true
-}
-
-#------------------------------------------------------------------------------
 # Clean patch application
 #------------------------------------------------------------------------------
 
