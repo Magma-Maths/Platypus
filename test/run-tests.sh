@@ -89,14 +89,14 @@ warning() {
 check_deps() {
   local missing=0
 
-  if ! command -v shellcheck &> /dev/null; then
+  if $RUN_SHELLCHECK && ! command -v shellcheck &> /dev/null; then
     error "shellcheck is not installed"
     echo "  Install with: sudo apt-get install shellcheck  (Linux)"
     echo "                brew install shellcheck           (macOS)"
     missing=1
   fi
 
-  if ! command -v bats &> /dev/null; then
+  if $RUN_TESTS && ! command -v bats &> /dev/null; then
     error "bats is not installed"
     echo "  Install with: sudo apt-get install bats          (Linux)"
     echo "                brew install bats-core             (macOS)"
