@@ -276,6 +276,10 @@ Platypus/
 │   ├── platypus          # Main entry point
 │   ├── platypus-svn      # SVN sync module
 │   └── platypus-subtree  # Subtree sync module
+├── test/                 # Test suite
+│   ├── run-tests.sh      # Test runner script
+│   ├── test_helper.bash  # Test helper functions
+│   └── *.bats            # Bats test files
 ├── share/                # Completion scripts (future)
 ├── .gitsubtrees          # Subtree configuration (in your repo)
 └── README.md
@@ -290,18 +294,40 @@ Platypus/
 ### For running tests
 
 - [bats-core](https://github.com/bats-core/bats-core) - Bash testing framework
+- [shellcheck](https://github.com/koalaman/shellcheck) - Shell script static analysis
 
 ```bash
 # macOS
-brew install bats-core
+brew install bats-core shellcheck
 
 # Ubuntu/Debian
-apt install bats
+apt install bats shellcheck
 
 # Or install from source
 git clone https://github.com/bats-core/bats-core.git
 cd bats-core && ./install.sh /usr/local
 ```
+
+**Running tests locally:**
+
+Use the test runner script to run tests and shellcheck (matching CI behavior):
+
+```bash
+# Run everything (shellcheck + tests)
+./test/run-tests.sh
+
+# Run only shellcheck
+./test/run-tests.sh --shellcheck
+
+# Run only tests
+./test/run-tests.sh --tests
+```
+
+The script will:
+- Check that required dependencies (shellcheck, bats) are installed
+- Run shellcheck on lib scripts and test scripts
+- Run all bats tests
+- Warn if git user.name/user.email are not configured (but won't modify your git config)
 
 ## License
 

@@ -35,9 +35,7 @@ jobs:
           git config --global init.defaultBranch main
 
       - name: Run tests
-        run: |
-          source .rc
-          bats test/
+        run: ./test/run-tests.sh --tests
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -48,11 +46,6 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
 
-      - name: Run shellcheck on lib scripts
-        run: |
-          shellcheck lib/platypus lib/platypus-subtree lib/platypus-svn
-
-      - name: Run shellcheck on test scripts
-        run: |
-          shellcheck -x test/*.bats test/test_helper.bash
+      - name: Run shellcheck
+        run: ./test/run-tests.sh --shellcheck
 

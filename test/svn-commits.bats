@@ -25,9 +25,8 @@ setup() {
 # Creates a repo that looks like it has git-svn configured
 # (without actually needing SVN)
 create_mock_svn_repo() {
-  local name=${1:-repo}
   local dir
-  dir=$(create_repo "$name")
+  dir=$(create_repo "repo")
   
   (
     cd "$dir"
