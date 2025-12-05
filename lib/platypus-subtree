@@ -368,6 +368,7 @@ Commands:
                     Add a new subtree from a remote repository
   pull <prefix>     Pull upstream changes into subtree
   push <prefix>     Push subtree changes to upstream
+  sync <prefix>     Bidirectional sync (pull then push)
   status [<prefix>] Show sync status of subtree(s)
   list              List all configured subtrees
 
@@ -395,6 +396,9 @@ Examples:
 
   # Push local changes to upstream
   platypus subtree push lib/foo
+
+  # Bidirectional sync (pull then push)
+  platypus subtree sync lib/foo
 
   # Show status of all subtrees
   platypus subtree status
@@ -735,6 +739,74 @@ command:push() {
   say "Subtree '$prefix' pushed to $remote ($branch)."
 }
 
+# Sync subtree bidirectionally (pull then push)
+# Usage: command:sync <prefix>
+command:sync() {
+  local prefix=""
+  local squash_opt=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --squash)
+        squash_opt="--squash"
+        shift
+        ;;
+      -*)
+        error "Unknown option for sync: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        else
+          error "Unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree sync <prefix>"
+  
+  # Normalize prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check configured
+  subtree:assert-configured "$prefix"
+  
+  # Get config for display
+  local remote branch
+  remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
+  branch=$(config:get "$prefix" branch) || branch="main"
+  
+  say "Syncing '$prefix' with $remote ($branch)..."
+  say ""
+  
+  if $dry_run; then
+    say "[dry-run] Would pull then push '$prefix'"
+    say ""
+    say "=== Pull phase ==="
+    command:pull "$prefix" $squash_opt
+    say ""
+    say "=== Push phase ==="
+    command:push "$prefix"
+    return 0
+  fi
+  
+  # Step 1: Pull upstream changes
+  say "=== Pull phase ==="
+  command:pull "$prefix" $squash_opt
+  
+  say ""
+  
+  # Step 2: Push local changes
+  say "=== Push phase ==="
+  command:push "$prefix"
+  
+  say ""
+  say "Subtree '$prefix' synced with $remote ($branch)."
+}
+
 # Show status of subtree(s)
 # Usage: command:status [<prefix>]
 command:status() {
@@ -945,6 +1017,9 @@ main() {
       ;;
     push)
       command:push "$@"
+      ;;
+    sync)
+      command:sync "$@"
       ;;
     status)
       command:status "$@"

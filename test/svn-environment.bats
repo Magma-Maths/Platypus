@@ -13,10 +13,10 @@ load test_helper
 # Not in a git repository
 #------------------------------------------------------------------------------
 
-@test "svn fails outside git repo" {
+@test "svn push fails outside git repo" {
   cd "$TEST_TMP"
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"git repository"* ]] || [[ "$output" == *"Not inside"* ]]
 }
@@ -25,7 +25,7 @@ load test_helper
 # Dirty worktree
 #------------------------------------------------------------------------------
 
-@test "svn fails with unstaged changes" {
+@test "svn push fails with unstaged changes" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -33,12 +33,12 @@ load test_helper
   # Create unstaged change to tracked file
   echo "modified" >> README.md
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unstaged"* ]] || [[ "$output" == *"unstaged"* ]]
 }
 
-@test "svn fails with staged changes" {
+@test "svn push fails with staged changes" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -47,7 +47,7 @@ load test_helper
   echo "new file" > new.txt
   git add new.txt
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"staged"* ]] || [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"clean"* ]]
 }
@@ -56,7 +56,7 @@ load test_helper
 # Not on correct branch
 #------------------------------------------------------------------------------
 
-@test "svn fails when on svn-export branch" {
+@test "svn push fails when on svn-export branch" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -64,12 +64,12 @@ load test_helper
   # Create and switch to svn-export branch
   git checkout -b svn-export
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"svn-export"* ]]
 }
 
-@test "svn fails when HEAD is detached" {
+@test "svn push fails when HEAD is detached" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -77,7 +77,7 @@ load test_helper
   # Create detached HEAD
   git checkout --detach HEAD
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"detached"* ]] || [[ "$output" == *"branch"* ]]
 }
@@ -86,7 +86,7 @@ load test_helper
 # Not at repo root
 #------------------------------------------------------------------------------
 
-@test "svn fails when not at repo root" {
+@test "svn push fails when not at repo root" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -95,7 +95,7 @@ load test_helper
   mkdir -p subdir
   cd subdir
   
-  run platypus svn
+  run platypus svn push
   [ "$status" -ne 0 ]
   [[ "$output" == *"top level"* ]] || [[ "$output" == *"root"* ]]
 }
@@ -126,35 +126,35 @@ load test_helper
 # Modes (basic check - these would need SVN for full testing)
 #------------------------------------------------------------------------------
 
-@test "svn --dry-run is accepted" {
+@test "svn push --dry-run is accepted" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
   
   # dry-run should be accepted but will fail later due to missing SVN setup
   # We just verify the flag is recognized
-  run platypus svn --dry-run
+  run platypus svn push --dry-run
   # Should not fail with "unknown option" error
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn --verbose is accepted" {
+@test "svn push --verbose is accepted" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
   
-  run platypus svn --verbose
+  run platypus svn push --verbose
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn --quiet is accepted" {
+@test "svn push --quiet is accepted" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
   
-  run platypus svn --quiet
+  run platypus svn push --quiet
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }

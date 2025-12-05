@@ -346,6 +346,179 @@ add_subtree_commits() {
   git subtree add --prefix="$prefix" "$lib_dir" main -m "Add $prefix subtree"
 }
 
+# Add a file to the monorepo's subtree directory and commit
+# Usage: monorepo_add_subtree_file <prefix> <filename> [content] [message]
+monorepo_add_subtree_file() {
+  local prefix=$1
+  local filename=$2
+  local content=${3:-"content of $filename"}
+  local message=${4:-"Mono: Add $filename to $prefix"}
+  
+  mkdir -p "$prefix"
+  echo "$content" > "$prefix/$filename"
+  git add "$prefix/$filename"
+  git commit -m "$message"
+}
+
+# Create a monorepo with a subtree that has diverged (both sides have new commits)
+# Returns: "repo|upstream|work_dir" (pipe-separated)
+# After call: monorepo has local commit in subtree, upstream has different commit
+# Usage: setup_divergent_subtree [prefix] [upstream_name]
+setup_divergent_subtree() {
+  local prefix=${1:-lib/foo}
+  local upstream_name=${2:-upstream}
+  local setup repo upstream work_dir
+  
+  # First set up a normal subtree repo
+  setup=$(setup_subtree_repo "$prefix" "$upstream_name")
+  repo=$(parse_subtree_setup "$setup" repo)
+  upstream=$(parse_subtree_setup "$setup" upstream)
+  work_dir=$(parse_subtree_setup "$setup" workdir)
+  
+  # Add a commit to the monorepo's subtree (local change)
+  (
+    cd "$repo"
+    monorepo_add_subtree_file "$prefix" "mono-change.txt" "from monorepo" "Mono: local subtree change"
+  ) >/dev/null
+  
+  # Add a commit to the upstream (remote change)
+  upstream_add_file "$work_dir" "upstream-change.txt" "from upstream"
+  
+  echo "$repo|$upstream|$work_dir"
+}
+
+#------------------------------------------------------------------------------
+# Subtree sync wrappers
+#------------------------------------------------------------------------------
+
+# Pull subtree changes from upstream
+# Usage: subtree_pull <prefix>
+subtree_pull() {
+  local prefix=$1
+  platypus subtree pull "$prefix"
+}
+
+# Push subtree changes to upstream
+# Usage: subtree_push <prefix>
+subtree_push() {
+  local prefix=$1
+  platypus subtree push "$prefix"
+}
+
+# Sync subtree bidirectionally (pull then push)
+# Usage: subtree_sync <prefix>
+subtree_sync() {
+  local prefix=$1
+  platypus subtree sync "$prefix"
+}
+
+#------------------------------------------------------------------------------
+# Sync verification helpers
+#------------------------------------------------------------------------------
+
+# Assert that first-parent history is linear (no subtree commits polluting it)
+# Usage: assert_linear_first_parent_history <base_ref> [tip_ref]
+# Checks that commits between base and tip don't include subtree library commits
+assert_linear_first_parent_history() {
+  local base=$1
+  local tip=${2:-HEAD}
+  
+  # Get first-parent commits
+  local commits
+  commits=$(git rev-list --first-parent "$base..$tip")
+  
+  # Check that none of the commits are "Lib commit" style (from add_subtree_commits)
+  for commit in $commits; do
+    local message
+    message=$(git log -1 --format=%s "$commit")
+    if [[ "$message" == "Lib commit"* ]]; then
+      echo "Found subtree library commit in first-parent history: $message" >&2
+      return 1
+    fi
+  done
+}
+
+# Assert expected number of commits in first-parent history
+# Usage: assert_commit_count_since <base_ref> <expected_count> [tip_ref]
+assert_commit_count_since() {
+  local base=$1
+  local expected=$2
+  local tip=${3:-HEAD}
+  
+  local actual
+  actual=$(git rev-list --first-parent --count "$base..$tip")
+  
+  if [[ "$actual" -ne "$expected" ]]; then
+    echo "Expected $expected commits since $base, got $actual" >&2
+    return 1
+  fi
+}
+
+# Assert that a file in the monorepo's subtree matches the upstream
+# Usage: assert_subtree_files_match <repo> <prefix> <work_dir> <filename>
+assert_subtree_files_match() {
+  local repo=$1
+  local prefix=$2
+  local work_dir=$3
+  local filename=$4
+  
+  local mono_content upstream_content
+  mono_content=$(cat "$repo/$prefix/$filename" 2>/dev/null || echo "FILE_NOT_FOUND")
+  upstream_content=$(cat "$work_dir/$filename" 2>/dev/null || echo "FILE_NOT_FOUND")
+  
+  if [[ "$mono_content" != "$upstream_content" ]]; then
+    echo "File mismatch for $filename:" >&2
+    echo "  Monorepo ($repo/$prefix/$filename): $mono_content" >&2
+    echo "  Upstream ($work_dir/$filename): $upstream_content" >&2
+    return 1
+  fi
+}
+
+# Assert that a file exists in both monorepo subtree and upstream
+# Usage: assert_file_synced <repo> <prefix> <work_dir> <filename>
+assert_file_synced() {
+  local repo=$1
+  local prefix=$2
+  local work_dir=$3
+  local filename=$4
+  
+  if [[ ! -f "$repo/$prefix/$filename" ]]; then
+    echo "File not in monorepo: $repo/$prefix/$filename" >&2
+    return 1
+  fi
+  
+  if [[ ! -f "$work_dir/$filename" ]]; then
+    echo "File not in upstream: $work_dir/$filename" >&2
+    return 1
+  fi
+}
+
+# Assert both repos have all expected files after sync
+# Usage: assert_sync_complete <repo> <prefix> <work_dir>
+assert_sync_complete() {
+  local repo=$1
+  local prefix=$2
+  local work_dir=$3
+  
+  # Check mono-originated files exist in upstream
+  if [[ -f "$repo/$prefix/mono-change.txt" ]]; then
+    # After push, upstream should have it too (need to pull in work_dir first)
+    (cd "$work_dir" && git pull origin "$DEFAULT_BRANCH" 2>/dev/null) || true
+    if [[ ! -f "$work_dir/mono-change.txt" ]]; then
+      echo "Mono change not synced to upstream" >&2
+      return 1
+    fi
+  fi
+  
+  # Check upstream-originated files exist in mono
+  if [[ -f "$work_dir/upstream-change.txt" ]]; then
+    if [[ ! -f "$repo/$prefix/upstream-change.txt" ]]; then
+      echo "Upstream change not synced to monorepo" >&2
+      return 1
+    fi
+  fi
+}
+
 #------------------------------------------------------------------------------
 # Patch testing helpers
 #------------------------------------------------------------------------------
