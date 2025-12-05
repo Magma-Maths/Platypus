@@ -42,7 +42,7 @@ setup() {
   [[ "$output" == *"lib/bar"* ]]
 }
 
-@test "list --quiet outputs only prefixes" {
+@test "status: list --quiet outputs only prefixes" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"

@@ -65,7 +65,7 @@ create_mock_svn_repo() {
 # Error handling tests
 #------------------------------------------------------------------------------
 
-@test "svn push fails outside git repo" {
+@test "push fails outside git repo" {
   cd "$TEST_TMP"
   
   run platypus svn push
@@ -105,7 +105,7 @@ create_mock_svn_repo() {
   [[ "$output" == *"staged"* ]] || [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"changes"* ]]
 }
 
-@test "svn push fails with unstaged changes" {
+@test "push fails with unstaged changes" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
