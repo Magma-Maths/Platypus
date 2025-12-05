@@ -287,6 +287,22 @@ Platypus/
 - Git 2.7.0+
 - git-svn (for SVN sync)
 
+### For running tests
+
+- [bats-core](https://github.com/bats-core/bats-core) - Bash testing framework
+
+```bash
+# macOS
+brew install bats-core
+
+# Ubuntu/Debian
+apt install bats
+
+# Or install from source
+git clone https://github.com/bats-core/bats-core.git
+cd bats-core && ./install.sh /usr/local
+```
+
 ## License
 
 Copyright 2025 - Edgar Costa
