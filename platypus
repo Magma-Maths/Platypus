@@ -26,8 +26,16 @@ set -e
 
 VERSION=0.1.0
 
-# Get the directory where this script lives
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the directory where this script lives (resolving symlinks)
+# This allows the script to be invoked via symlink from /usr/local/bin/
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  # If $SOURCE was a relative symlink, resolve it relative to the symlink's directory
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
 #------------------------------------------------------------------------------
