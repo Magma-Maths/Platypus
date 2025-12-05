@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164  # cd failures handled by bats
 #
 # subtree-conflicts.bats - Tests for subtree merge conflict scenarios
 #

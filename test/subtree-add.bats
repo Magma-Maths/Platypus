@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC2034  # cd failures handled by bats; unused vars are for clarity
 #
 # add.bats - Tests for 'platypus subtree add' command
 #

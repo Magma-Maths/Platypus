@@ -6,6 +6,8 @@
 #   load test_helper
 #
 
+# shellcheck disable=SC2164  # cd in test setup is fine without error handling
+
 # Get the directory of the test file
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLATYPUS_ROOT="$(dirname "$TEST_DIR")"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC2034  # cd failures handled by bats; unused vars are for clarity
 #
 # svn-commits.bats - Tests for SVN commit discovery and linear history
 #
@@ -78,7 +79,7 @@ add_subtree_commits() {
     git config user.name "Test"
     git config user.email "test@test.com"
     
-    for i in $(seq 1 $num_commits); do
+    for i in $(seq 1 "$num_commits"); do
       echo "lib content $i" > "lib-file-$i.txt"
       git add "lib-file-$i.txt"
       git commit -m "Lib commit $i"

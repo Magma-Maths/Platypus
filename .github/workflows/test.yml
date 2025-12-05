@@ -52,3 +52,7 @@ jobs:
         run: |
           shellcheck lib/platypus lib/platypus-subtree lib/platypus-svn
 
+      - name: Run shellcheck on test scripts
+        run: |
+          shellcheck -x test/*.bats test/test_helper.bash
+

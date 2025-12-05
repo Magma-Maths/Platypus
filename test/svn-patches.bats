@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC2034  # cd failures handled by bats; unused vars are for clarity
 #
 # svn-patches.bats - Tests for patch application and conflict handling
 #
