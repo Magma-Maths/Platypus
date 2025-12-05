@@ -9,16 +9,22 @@ SVN <─────> Git monorepo <─────> Git subtrees
 
 ## Installation
 
-Clone this repository and add it to your PATH:
+Clone this repository and source the `.rc` file in your shell startup:
 
 ```bash
-export PATH="/path/to/Platypus:$PATH"
+# Add to ~/.bashrc or ~/.zshrc:
+source /path/to/Platypus/.rc
 ```
 
-Or create a symlink:
+This will:
+- Add `platypus` command to your PATH
+- Set up `PLATYPUS_ROOT` environment variable
+- Enable tab completion (when available)
+
+Alternatively, you can just add the lib directory to your PATH:
 
 ```bash
-ln -s /path/to/Platypus/platypus /usr/local/bin/platypus
+export PATH="/path/to/Platypus/lib:$PATH"
 ```
 
 ## Usage
@@ -265,10 +271,12 @@ cat .git/svngit-conflicts.log
 
 ```text
 Platypus/
-├── platypus              # Main entry point
+├── .rc                   # Shell initialization (source this)
 ├── lib/
-│   ├── platypus-svn.sh   # SVN sync module
-│   └── platypus-subtree.sh # Subtree sync module
+│   ├── platypus          # Main entry point
+│   ├── platypus-svn      # SVN sync module
+│   └── platypus-subtree  # Subtree sync module
+├── share/                # Completion scripts (future)
 ├── .gitsubtrees          # Subtree configuration (in your repo)
 └── README.md
 ```

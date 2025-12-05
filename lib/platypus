@@ -26,17 +26,22 @@ set -e
 
 VERSION=0.1.0
 
-# Get the directory where this script lives (resolving symlinks)
-# This allows the script to be invoked via symlink from /usr/local/bin/
-SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$SOURCE" ]]; do
-  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
-  SOURCE="$(readlink "$SOURCE")"
-  # If $SOURCE was a relative symlink, resolve it relative to the symlink's directory
-  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
-LIB_DIR="$SCRIPT_DIR/lib"
+# Get the root directory of Platypus
+# If PLATYPUS_ROOT is set (from .rc), use it; otherwise compute from script location
+if [[ -z "${PLATYPUS_ROOT:-}" ]]; then
+  # Get the directory where this script lives (resolving symlinks)
+  SOURCE="${BASH_SOURCE[0]}"
+  while [[ -L "$SOURCE" ]]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+  done
+  SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  # Script is in lib/, so root is one level up
+  PLATYPUS_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+
+LIB_DIR="$PLATYPUS_ROOT/lib"
 
 #------------------------------------------------------------------------------
 # Utility functions:
@@ -88,7 +93,8 @@ EOF
 
 show-version() {
   echo "platypus version $VERSION"
-  echo "  svn module: $(source "$LIB_DIR/platypus-svn.sh" && echo "$VERSION")"
+  echo "  svn module: $(source "$LIB_DIR/platypus-svn" && echo "$VERSION")"
+  echo "  subtree module: $(source "$LIB_DIR/platypus-subtree" && echo "$VERSION")"
 }
 
 #------------------------------------------------------------------------------
@@ -96,12 +102,12 @@ show-version() {
 #------------------------------------------------------------------------------
 
 command:svn() {
-  source "$LIB_DIR/platypus-svn.sh"
+  source "$LIB_DIR/platypus-svn"
   main "$@"
 }
 
 command:subtree() {
-  source "$LIB_DIR/platypus-subtree.sh"
+  source "$LIB_DIR/platypus-subtree"
   main "$@"
 }
 

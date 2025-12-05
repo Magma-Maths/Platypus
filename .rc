@@ -1,0 +1,41 @@
+# shellcheck shell=bash
+
+#------------------------------------------------------------------------------
+#
+# Platypus initialization script
+#
+# This script enables the `platypus` command, and optionally TAB completion
+# for Bash and Zsh shells.
+#
+# Add this line to your shell startup file (~/.bashrc, ~/.zshrc):
+#
+#   source /path/to/Platypus/.rc
+#
+#------------------------------------------------------------------------------
+
+# Determine PLATYPUS_ROOT from the location of this file
+if [[ -n ${ZSH_VERSION-} ]]; then
+  PLATYPUS_ROOT=${0:A:h}
+elif [[ -n ${BASH_VERSION-} ]]; then
+  PLATYPUS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+else
+  # Fallback for other shells
+  PLATYPUS_ROOT=$(cd "$(dirname "$0")" && pwd)
+fi
+
+export PLATYPUS_ROOT
+
+# Add lib/ to PATH so `platypus` command is available
+export PATH="$PLATYPUS_ROOT/lib:$PATH"
+
+# Add man pages if they exist
+if [[ -d "$PLATYPUS_ROOT/man" ]]; then
+  export MANPATH="$PLATYPUS_ROOT/man:${MANPATH:-}"
+fi
+
+# Source completion script if it exists
+if [[ -f "$PLATYPUS_ROOT/share/completion.bash" ]]; then
+  # shellcheck source=/dev/null
+  source "$PLATYPUS_ROOT/share/completion.bash"
+fi
+
