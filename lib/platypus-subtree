@@ -695,25 +695,19 @@ command:push() {
   
   say "Pushing '$prefix' to $remote ($branch)..."
   
-  # Build split command with incremental optimization
-  local split_args="--prefix=$prefix"
+  # Build split command
+  # We use --rejoin to create a merge commit marking the split point.
+  # This allows subsequent splits to skip already-processed history.
+  local split_args="--prefix=$prefix --rejoin"
   local temp_branch="platypus-split-$$"
-  
-  if [[ -n "$splitSha" ]]; then
-    o "Using incremental split (--onto=$splitSha)"
-    split_args+=" --onto=$splitSha"
-  else
-    o "First push - full split required (this may take a while on large repos)"
-  fi
   
   if $dry_run; then
     say "[dry-run] Would run: git subtree split $split_args -b $temp_branch"
     say "[dry-run] Would run: git push $remote $temp_branch:$branch"
-    say "[dry-run] Would update splitSha in $CONFIG_FILE"
     return 0
   fi
   
-  # Split
+  # Split with --rejoin for incremental optimization
   o "Splitting subtree..."
   # shellcheck disable=SC2086
   RUN git subtree split $split_args -b "$temp_branch"
@@ -722,7 +716,7 @@ command:push() {
   o "Pushing to $remote..."
   RUN git push "$remote" "$temp_branch:$branch"
   
-  # Update config with new split SHA
+  # Record the split SHA for status/reference (optional, --rejoin handles optimization)
   local new_splitSha
   new_splitSha=$(git rev-parse "$temp_branch")
   config:set "$prefix" splitSha "$new_splitSha"
@@ -730,9 +724,9 @@ command:push() {
   # Cleanup temp branch
   RUN git branch -D "$temp_branch"
   
-  # Commit config update
+  # Stage config update (--rejoin already created a merge commit, so we amend it)
   RUN git add "$CONFIG_PATH"
-  RUN git commit -m "platypus: update splitSha for $prefix"
+  RUN git commit --amend --no-edit
   
   say "Subtree '$prefix' pushed to $remote ($branch)."
 }
