@@ -250,11 +250,11 @@ state:save() {
 
 # Load saved state:
 state:load() {
-  [[ -f "$STATE_DIR/original-branch" ]] && original_branch=$(cat "$STATE_DIR/original-branch")
-  [[ -f "$STATE_DIR/base" ]] && BASE=$(cat "$STATE_DIR/base")
-  [[ -f "$STATE_DIR/tip" ]] && TIP=$(cat "$STATE_DIR/tip")
-  [[ -f "$STATE_DIR/commits-remaining" ]] && COMMITS=$(cat "$STATE_DIR/commits-remaining")
-  [[ -f "$STATE_DIR/current-commit" ]] && current_commit=$(cat "$STATE_DIR/current-commit")
+  [[ -f "$STATE_DIR/original-branch" ]] && original_branch=$(cat "$STATE_DIR/original-branch") || true
+  [[ -f "$STATE_DIR/base" ]] && BASE=$(cat "$STATE_DIR/base") || true
+  [[ -f "$STATE_DIR/tip" ]] && TIP=$(cat "$STATE_DIR/tip") || true
+  [[ -f "$STATE_DIR/commits-remaining" ]] && COMMITS=$(cat "$STATE_DIR/commits-remaining") || true
+  [[ -f "$STATE_DIR/current-commit" ]] && current_commit=$(cat "$STATE_DIR/current-commit") || true
 }
 
 # Clear saved state:
