@@ -474,6 +474,13 @@ command:init() {
   o "Remote: $remote"
   o "Branch: $branch"
   
+  if $dry_run; then
+    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    say "[dry-run]   remote = $remote"
+    say "[dry-run]   branch = $branch"
+    return 0
+  fi
+  
   # Create config entry
   config:set "$prefix" remote "$remote"
   config:set "$prefix" branch "$branch"
@@ -483,18 +490,14 @@ command:init() {
   parent=$(git rev-parse HEAD)
   config:set "$prefix" parent "$parent"
   
-  if $dry_run; then
-    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
-  else
-    # Stage the config file
-    RUN git add "$CONFIG_PATH"
-    say "Subtree '$prefix' initialized."
-    say "Config added to $CONFIG_FILE (staged, not committed)."
-    say ""
-    say "Next steps:"
-    say "  1. Commit the config: git commit -m 'Add subtree config for $prefix'"
-    say "  2. To push changes upstream: platypus subtree push $prefix"
-  fi
+  # Stage the config file
+  RUN git add "$CONFIG_PATH"
+  say "Subtree '$prefix' initialized."
+  say "Config added to $CONFIG_FILE (staged, not committed)."
+  say ""
+  say "Next steps:"
+  say "  1. Commit the config: git commit -m 'Add subtree config for $prefix'"
+  say "  2. To push changes upstream: platypus subtree push $prefix"
 }
 
 # Add a new subtree from a remote repository
