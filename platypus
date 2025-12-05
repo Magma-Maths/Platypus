@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+#
+# platypus - Sync Git monorepo with SVN and subrepos
+#
+# Copyright 2025 - Edgar Costa
+#
+# Platypus keeps three worlds in sync using a Git monorepo as the hub:
+#   SVN <-> Git monorepo <-> Git subrepos
+#
+# Usage:
+#   platypus <command> [options]
+#
+# Commands:
+#   svn       Sync Git main to SVN
+#   subtree   Manage Git subtrees (pull/push)
+#   sync      Run full sync (SVN + subtrees)
+#   help      Show this help message
+#   version   Show version information
+#
+
+set -e
+
+#------------------------------------------------------------------------------
+# Configuration:
+#------------------------------------------------------------------------------
+
+VERSION=0.1.0
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+#------------------------------------------------------------------------------
+# Utility functions:
+#------------------------------------------------------------------------------
+
+say() {
+  echo "$@"
+}
+
+err() {
+  echo "$@" >&2
+}
+
+error() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+#------------------------------------------------------------------------------
+# Help:
+#------------------------------------------------------------------------------
+
+show-help() {
+  cat <<'EOF'
+Usage: platypus <command> [options]
+
+Platypus keeps three worlds in sync using a Git monorepo as the hub:
+  SVN <-> Git monorepo <-> Git subtrees
+
+Commands:
+  svn       Sync Git main to SVN (push commits from Git to SVN)
+  subtree   Manage Git subtrees (pull/push)
+  sync      Run full sync (SVN + subtrees)
+  help      Show this help message
+  version   Show version information
+
+Examples:
+  platypus svn --verbose           # Sync to SVN with verbose output
+  platypus svn --push-conflicts    # Push through conflicts
+  platypus subtree pull mylib      # Pull a subtree from upstream
+  platypus subtree push mylib      # Push a subtree to upstream
+  platypus sync                    # Full sync
+
+For command-specific help:
+  platypus svn --help
+  platypus subtree --help
+EOF
+}
+
+show-version() {
+  echo "platypus version $VERSION"
+  echo "  svn module: $(source "$LIB_DIR/platypus-svn.sh" && echo "$VERSION")"
+}
+
+#------------------------------------------------------------------------------
+# Command dispatch:
+#------------------------------------------------------------------------------
+
+command:svn() {
+  source "$LIB_DIR/platypus-svn.sh"
+  main "$@"
+}
+
+command:subtree() {
+  source "$LIB_DIR/platypus-subtree.sh"
+  main "$@"
+}
+
+command:sync() {
+  say "=== Platypus Full Sync ==="
+  say ""
+  
+  # Step 1: Sync SVN
+  say ">>> Step 1: Sync to SVN"
+  command:svn "$@"
+  local svn_exit=$?
+  
+  say ""
+  
+  # Step 2: Sync subtrees
+  say ">>> Step 2: Sync subtrees"
+  say "[TODO] Subtree sync not yet implemented"
+  local subtree_exit=0
+  
+  say ""
+  say "=== Full Sync Complete ==="
+  
+  # Return worst exit code
+  if [[ $svn_exit -ne 0 ]]; then
+    exit $svn_exit
+  fi
+  exit $subtree_exit
+}
+
+#------------------------------------------------------------------------------
+# Main:
+#------------------------------------------------------------------------------
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    show-help
+    exit 0
+  fi
+
+  local command=$1
+  shift
+
+  case "$command" in
+    svn)
+      command:svn "$@"
+      ;;
+    subtree)
+      command:subtree "$@"
+      ;;
+    sync)
+      command:sync "$@"
+      ;;
+    help|--help|-h)
+      show-help
+      ;;
+    version|--version)
+      show-version
+      ;;
+    *)
+      error "Unknown command: $command. Use 'platypus help' for usage."
+      ;;
+  esac
+}
+
+#------------------------------------------------------------------------------
+# Entry point:
+#------------------------------------------------------------------------------
+
+[[ ${BASH_SOURCE[0]} != "$0" ]] || main "$@"
+
