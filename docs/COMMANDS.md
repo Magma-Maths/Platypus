@@ -6,6 +6,7 @@ showing repository states before and after each operation.
 ## Table of Contents
 
 - [Subtree Commands](#subtree-commands)
+  - [Configuration Tracking](#configuration-tracking)
   - [subtree add](#subtree-add)
   - [subtree pull](#subtree-pull)
   - [subtree push](#subtree-push)
@@ -53,6 +54,33 @@ subdirectories in your monorepo. Configuration is stored in `.gitsubtrees`.
 
 ---
 
+### Configuration Tracking
+
+The `.gitsubtrees` file tracks three important SHA values for each subtree:
+
+```ini
+[subtree "lib/foo"]
+    remote = git@github.com:owner/foo.git
+    branch = main
+    upstream = abc123...    # Last synced upstream commit
+    parent = def456...      # Monorepo commit at last sync  
+    splitSha = 789abc...    # Last split result (for incremental push)
+```
+
+| Field | Purpose | Set By |
+|-------|---------|--------|
+| `upstream` | Points to the upstream repo commit we last synced with | `add`, `pull` |
+| `parent` | Points to the monorepo commit after last sync operation | `add`, `pull`, `push` |
+| `splitSha` | Points to the extracted subtree history branch tip | `push` only |
+
+**Why track these?**
+
+- `upstream`: Tells us "what upstream commit is our subtree based on?" Used to detect if upstream has new changes.
+- `parent`: Tells us "what monorepo state was this config written at?" Used for debugging and tracking.
+- `splitSha`: Enables **incremental push optimization**. Without it, `git subtree split` must walk the entire repo history. With it, we can use `--rejoin` to mark split points, making subsequent splits much faster.
+
+---
+
 ### subtree add
 
 **Purpose:** Add a new subtree from a remote repository.
@@ -70,30 +98,26 @@ platypus subtree add <prefix> <repo> [<ref>]
 
 **Before:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        A (Initial commit)           X (Upstream content)
-        │                            │
+Mono:     A ─────────────────────────────────────
+                                                  
+Upstream: X (content we want)                     
 ```
 
 **After:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        A                            X
-        │                            │
-        B (Add lib/foo subtree)      │
-        │\___________________________│
-        │  (subtree merge)
+Mono:     A ───── B (Add lib/foo subtree)
+                 /
+Upstream: X ────┘
 ```
 
-**Configuration created:**
+**Config state after `add`:**
 ```ini
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
     branch = main
-    upstream = <sha of X>
-    parent = <sha of B>
+    upstream = X        # ← The upstream commit we added
+    parent = B          # ← The mono commit after adding
+    splitSha = (none)   # ← Not set until first push
 ```
 
 ---
@@ -115,31 +139,35 @@ platypus subtree pull <prefix>
 
 **Before:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        A                            X
-        │                            │
-        B (has subtree)              Y (new commit)
-        │                            │
-        C (mono work)                Z (another commit)
+Mono:     A ─── B ─── C (mono work)
+             ╱
+Upstream: X ─── Y ─── Z (new commits)
+
+Config: upstream=X, parent=B, splitSha=(none)
 ```
 
 **After:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        A                            X
-        │                            │
-        B                            Y
-        │                            │
-        C                            Z
-        │\___________________________│
-        D (Merge subtree)
+Mono:     A ─── B ─── C ─── D (Merge subtree from Z)
+             ╱             ╱
+Upstream: X ─── Y ─── Z ──┘
+
+Config: upstream=Z, parent=D, splitSha=(none)
+                 ▲        ▲
+                 │        └── Updated to new mono HEAD
+                 └── Updated to fetched upstream tip
 ```
 
 The merge commit D contains:
 - All files from Z in the `lib/foo/` prefix
-- Updated `.gitsubtrees` with new `upstream` SHA
+- Updated `.gitsubtrees` with new `upstream` and `parent` SHAs
+
+**Config changes:**
+| Field | Before | After |
+|-------|--------|-------|
+| `upstream` | X | Z (new upstream tip) |
+| `parent` | B | D (new mono HEAD) |
+| `splitSha` | (none) | (unchanged) |
 
 ---
 
@@ -160,28 +188,61 @@ platypus subtree push <prefix>
 
 **Before:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B (has subtree)              X
-        │                            │
-        C (changed lib/foo/file.txt) │
-        │                            │
+Mono:     A ─── B ─── C (changed lib/foo/file.txt)
+             ╱
+Upstream: X ───────────
+
+Config: upstream=X, parent=B, splitSha=(none)
+```
+
+**The split operation extracts subtree commits:**
+```
+Full mono history:        Extracted subtree history:
+A ─── B ─── C             X ─── C' (just the lib/foo changes)
+     ╱                         │
+    X                          └── This becomes splitSha
 ```
 
 **After:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B                            X
-        │                            │
-        C                            │
-        │\                           │
-        D (rejoin merge)             Y (pushed from mono)
-                                     │
+Mono:     A ─── B ─── C ─── D (rejoin merge)
+             ╱             ╲
+Upstream: X ─────────────── C' (pushed)
+                            │
+                            └── splitSha points here
+
+Config: upstream=X, parent=D, splitSha=C'
+                        ▲            ▲
+                        │            └── NEW: tracks split result
+                        └── Updated to rejoin commit
 ```
 
-The `--rejoin` creates a merge commit that marks where we split. This makes
-subsequent pushes faster (incremental split).
+The `--rejoin` creates a merge commit marking where we split. This makes
+subsequent pushes faster because `git subtree split` can skip already-processed history.
+
+**Config changes:**
+| Field | Before | After |
+|-------|--------|-------|
+| `upstream` | X | X (unchanged - we pushed TO upstream, not pulled) |
+| `parent` | B | D (new mono HEAD after rejoin) |
+| `splitSha` | (none) | C' (the extracted subtree branch tip) |
+
+**Why splitSha matters:**
+
+Without splitSha tracking (first push):
+```
+git subtree split --prefix=lib/foo
+# Must walk ENTIRE repo history to find subtree commits
+# On a 50k commit repo, this can take minutes
+```
+
+With splitSha tracking (subsequent pushes):
+```
+git subtree split --prefix=lib/foo --rejoin
+# The --rejoin merge commit marks the split point
+# Subsequent splits only process new commits
+# Takes seconds instead of minutes
+```
 
 ---
 
@@ -202,37 +263,44 @@ This is useful when both the monorepo and upstream have new commits.
 
 **Before (divergent state):**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B (has subtree)              X (initial)
-        │                            │
-        C (mono change)              Y (upstream change)
-        │                            │
+Mono:     A ─── B ─── C (mono change)
+             ╱
+Upstream: X ─── Y (upstream change)
+
+Config: upstream=X, parent=B, splitSha=(none)
 ```
 
 **After pull phase:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B                            X
-        │                            │
-        C                            Y
-        │\___________________________│
-        D (merge from upstream)
+Mono:     A ─── B ─── C ─── D (merge from upstream)
+             ╱             ╱
+Upstream: X ─── Y ────────┘
+
+Config: upstream=Y, parent=D, splitSha=(none)
 ```
 
 **After push phase:**
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B                            X
-        │                            │
-        C                            Y
-        │\                           │
-        D (merge from upstream)      Z (mono change pushed)
-        │\                           │
-        E (rejoin)
+Mono:     A ─── B ─── C ─── D ─── E (rejoin)
+             ╱             ╱     ╲
+Upstream: X ─── Y ────────┴───── C' (mono change pushed)
+                                  │
+                                  └── splitSha
+
+Config: upstream=Y, parent=E, splitSha=C'
 ```
+
+**Full config evolution during sync:**
+
+| Phase | upstream | parent | splitSha |
+|-------|----------|--------|----------|
+| Before | X | B | (none) |
+| After pull | Y | D | (none) |
+| After push | Y | E | C' |
+
+After sync, both repos have all changes:
+- Upstream has: X → Y → C' (both upstream's Y and mono's C)
+- Mono has: merged Y from upstream, plus its own C
 
 ---
 
@@ -283,22 +351,22 @@ platypus svn pull
 
 **Before:**
 ```
-    GIT main          SVN mirror          SVN trunk
-        │                 │                   │
-        A                 A                   r1
-        │                 │                   │
-        B                 │                   r2 (new SVN commit)
-        │                 │                   │
+Git main:   A ─── B ─────────────────────
+                                          
+SVN mirror: A ───────────────────────────
+                                          
+SVN trunk:  r1 ─── r2 (new SVN commit)   
 ```
 
 **After:**
 ```
-    GIT main          SVN mirror          SVN trunk
-        │                 │                   │
-        A                 A                   r1
-        │                 │                   │
-        B                 C ◄─────────────── r2
-        │                 │
+Git main:   A ─── B ─────────────────────
+                                          
+SVN mirror: A ─── C (from r2) ───────────
+                  │                       
+                  └── git svn rebase pulled this
+                                          
+SVN trunk:  r1 ─── r2                    
 ```
 
 The `svn` branch now has the new SVN revision as a Git commit.
@@ -328,17 +396,11 @@ platypus svn push [--push-conflicts]
 When you have subtrees, their history lives "behind" merge commits:
 
 ```
-    main (first-parent path)
-        │
-        A
-        │
-        B ◄──────┐ (subtree merge)
-        │        │
-        │        L1 (lib commit 1)
-        │        │
-        │        L2 (lib commit 2)
-        │
-        C
+main (first-parent path): A ─── B ─── C
+                                │
+                                └──┬── L1 ─── L2 (subtree history)
+                                   │
+                                   └── subtree merge brings in L1, L2
 ```
 
 Walking `--first-parent` gives: A → B → C (3 commits)
@@ -348,26 +410,20 @@ We only want to export the net changes, not replay subtree internal history.
 
 **Before:**
 ```
-    GIT main          SVN marker          SVN trunk
-        │                 │                   │
-        A ◄───────────────┤                   r1
-        │                                     │
-        B                                     │
-        │                                     │
-        C                                     │
+Git main:   A ─── B ─── C ──────────────── (marker at A)
+                                           
+SVN trunk:  r1 ─────────────────────────── 
 ```
 
 **After:**
 ```
-    GIT main          SVN marker          SVN trunk
-        │                 │                   │
-        A                 │                   r1
-        │                 │                   │
-        B                 │                   r2 (from B)
-        │                 │                   │
-        C ◄───────────────┤                   r3 (from C)
-        │\                                    │
-        D (merge SVN back)
+Git main:   A ─── B ─── C ─── D (merge SVN back)  (marker at C)
+                             ╱                     
+SVN trunk:  r1 ─── r2 ─── r3 ────────────────────
+            │      │      │
+            │      │      └── from C
+            │      └── from B
+            └── from A (initial)
 ```
 
 The marker now points to C, and main has a merge commit with SVN metadata.
@@ -381,34 +437,27 @@ The marker now points to C, and main has a merge commit with SVN metadata.
 When both the monorepo and upstream have made changes since the last sync:
 
 ```
-    MONOREPO                     UPSTREAM
-        │                            │
-        B (last sync)                X (last sync)
-        │                            │
-        C (mono adds feature)        Y (upstream fixes bug)
-        │                            │
+Mono:     ... ─── B ─── C (mono adds feature)
+                 │
+                 └── last sync point
+                 
+Upstream: ... ─── X ─── Y (upstream fixes bug)
+                 │
+                 └── last sync point (same as B's subtree content)
 ```
 
 **Resolution with `subtree sync`:**
 
 1. **Pull phase** merges Y into mono:
    ```
-       C
-       │\
-       │ Y
-       │/
-       D (merge)
+   Mono: ... ─── B ─── C ─── D (merge)
+                            ╱
+   Upstream: X ─── Y ──────┘
    ```
 
 2. **Push phase** sends C to upstream:
    ```
-       UPSTREAM
-           │
-           X
-           │
-           Y
-           │
-           Z (from mono's C)
+   Upstream: X ─── Y ─── C' (from mono's C)
    ```
 
 After sync, both repos have both changes.
@@ -461,6 +510,25 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
     splitSha = 789abc...    # Last split SHA (for incremental push)
 ```
 
+**Config field lifecycle:**
+
+```
+                    ┌─────────────────────────────────────────────────────┐
+                    │              Config Field Updates                    │
+                    ├─────────────┬─────────────┬─────────────┬───────────┤
+                    │   add       │   pull      │   push      │   sync    │
+┌───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
+│ upstream          │  SET        │  UPDATE     │  -          │  UPDATE   │
+│ (upstream tip)    │  (fetched)  │  (fetched)  │             │  (pull)   │
+├───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
+│ parent            │  SET        │  UPDATE     │  UPDATE     │  UPDATE   │
+│ (mono HEAD)       │  (after op) │  (after op) │  (rejoin)   │  (both)   │
+├───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
+│ splitSha          │  -          │  -          │  SET/UPDATE │  UPDATE   │
+│ (split result)    │             │             │  (split)    │  (push)   │
+└───────────────────┴─────────────┴─────────────┴─────────────┴───────────┘
+```
+
 ### Environment Variables (SVN)
 
 | Variable | Default | Description |
@@ -488,4 +556,3 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
 | `platypus svn push` | Push to SVN |
 | `platypus svn push --continue` | Resume after conflict |
 | `platypus svn push --abort` | Abort in-progress push |
-
