@@ -15,7 +15,8 @@ export PLATYPUS_ROOT
 export PATH="$PLATYPUS_ROOT/lib:$PATH"
 
 # Temp directory for test repos (cleaned up after each test)
-export TEST_TMP="$TEST_DIR/tmp"
+# Use /tmp to ensure we're outside the Platypus repo (for "not in git repo" tests)
+export TEST_TMP="/tmp/platypus-test-$$"
 
 # Git user config for tests
 export GIT_AUTHOR_NAME="Test User"
