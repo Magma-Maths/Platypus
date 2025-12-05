@@ -199,7 +199,10 @@ config:exists() {
     return 1
   fi
   
-  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${prefix//\//\\.}\\." &>/dev/null
+  # git config keeps slashes in section names, so we match literally
+  # We need to escape dots in prefix for regex, but keep slashes
+  local escaped_prefix="${prefix//./\\.}"
+  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${escaped_prefix}\\." &>/dev/null
 }
 
 # List all configured subtree prefixes
@@ -226,8 +229,10 @@ config:get-all() {
     return 0
   fi
   
-  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${prefix//\//\\.}\\." 2>/dev/null |
-    sed "s/^subtree\\.${prefix//\//\\.}\\.//"
+  # Escape dots in prefix for regex, keep slashes
+  local escaped_prefix="${prefix//./\\.}"
+  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${escaped_prefix}\\." 2>/dev/null |
+    sed "s/^subtree\\.${escaped_prefix}\\.//"
 }
 
 #------------------------------------------------------------------------------
