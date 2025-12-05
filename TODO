@@ -1,0 +1,156 @@
+# Platypus TODO
+
+## Missing features
+- add a playtpus status
+- add a platytpus svn status
+
+## Features
+- add bash/zsh completion
+- add man page
+
+
+## Tests
+
+### Testing Framework
+- Docker test environment with SVN server
+- Multiple bash versions (4.0+) for compatibility testing
+- shellcheck validation pass
+
+### platypus-svn.sh Tests
+
+#### Environment / Prerequisites
+- [ ] Missing `git` command
+- [ ] Missing `git-svn` extension
+- [ ] Git version too old (< 2.25)
+- [ ] Not in a git repository
+- [ ] Dirty worktree (uncommitted changes)
+- [ ] Wrong branch (not on main)
+- [ ] Missing origin remote
+- [ ] Missing svn remote
+
+#### Marker Branch
+- [ ] Fresh run (no marker exists) - creates marker at merge-base
+- [ ] Marker already exists - resumes from marker
+- [ ] Marker is invalid/corrupt ref
+- [ ] Marker points to non-existent commit
+
+#### Commit Discovery
+- [ ] No new commits to sync
+- [ ] Single commit to sync
+- [ ] Multiple commits to sync
+- [ ] Merge commits are skipped (first-parent only)
+
+#### Patch Application
+- [ ] Clean apply succeeds
+- [ ] 3-way merge fallback works
+- [ ] `--reject` fallback creates .rej files
+- [ ] `--push-conflicts` marks conflicts and continues
+- [ ] Conflict without `--push-conflicts` stops with instructions
+
+#### SVN Operations (requires Docker with SVN)
+- [ ] `git svn rebase` succeeds
+- [ ] `git svn rebase` fails (network/auth)
+- [ ] `git svn dcommit` succeeds
+- [ ] `git svn dcommit` fails (conflicts on SVN side)
+
+#### State Management
+- [ ] `--continue` resumes after conflict resolution
+- [ ] `--abort` cleans up state and branches
+- [ ] State file contains correct remaining commits
+- [ ] Corrupt state file is handled gracefully
+
+#### Cleanup / Recovery
+- [ ] Returns to original branch on success
+- [ ] Leaves svn-export branch on error for inspection
+- [ ] Deletes svn-export branch on success
+- [ ] Handles interrupt (Ctrl+C) gracefully
+
+#### Modes
+- [ ] `--dry-run` shows what would happen without changes
+- [ ] `--verbose` shows detailed output
+- [ ] `--quiet` suppresses non-error output
+- [ ] `--debug` enables set -x tracing
+
+#### Exit Codes
+- [ ] Exit 0 on success
+- [ ] Exit 1 on error
+- [ ] Exit 2 on conflicts (with `--push-conflicts`)
+
+#### Automation Features
+- [ ] `[CONFLICT]` prefix added to conflict commits
+- [ ] Git notes attached to conflict commits
+- [ ] Conflict log file created at `.git/svngit/conflicts.log`
+
+### platypus-subtree.sh Tests
+
+#### Configuration (.gitsubtrees at repo root)
+- [ ] `config:get` reads values from .gitsubtrees
+- [ ] `config:set` writes values to .gitsubtrees
+- [ ] `config:list` returns all configured prefixes
+- [ ] `config:exists` correctly detects configured subtrees
+- [ ] Missing .gitsubtrees file is created on first write
+- [ ] Handles subtree prefixes with slashes (lib/foo/bar)
+- [ ] Invalid config format produces clear error
+
+#### command:init
+- [ ] Creates config entry for existing directory
+- [ ] Requires -r remote option
+- [ ] Accepts -b branch option (defaults to main)
+- [ ] Errors if directory doesn't exist
+- [ ] Errors if directory is empty
+- [ ] Errors if subtree already configured
+- [ ] Stages .gitsubtrees (doesn't commit)
+
+#### command:add
+- [ ] Calls `git subtree add` with correct args
+- [ ] Creates config with remote, branch, upstream, parent
+- [ ] Amends commit to include .gitsubtrees
+- [ ] Errors if directory already exists
+- [ ] Errors if subtree already configured
+- [ ] --squash option passed through to git subtree
+
+#### command:pull
+- [ ] Fetches from configured remote/branch
+- [ ] Calls `git subtree merge --prefix=<prefix>`
+- [ ] Updates upstream and parent in config
+- [ ] Amends merge commit to include config update
+- [ ] Errors if subtree not configured
+- [ ] --squash option passed through
+
+#### command:push
+- [ ] First push does full `git subtree split`
+- [ ] Subsequent pushes use `--onto=<splitSha>` (fast!)
+- [ ] Updates splitSha in config after successful push
+- [ ] Cleans up temporary branch
+- [ ] Commits config update
+- [ ] Errors if subtree not configured
+- [ ] Handles push rejection (upstream changes)
+
+#### command:status
+- [ ] Shows info for single subtree if prefix given
+- [ ] Shows info for all subtrees if no prefix
+- [ ] Shows remote, branch, upstream, parent, splitSha
+- [ ] Detects missing directory
+
+#### command:list
+- [ ] Lists all configured subtrees
+- [ ] Shows remote and branch for each
+- [ ] Quiet mode outputs just prefixes
+
+#### Incremental Split Optimization
+- [ ] First push (no splitSha) completes successfully
+- [ ] Second push uses --onto and is significantly faster
+- [ ] Invalid/stale splitSha falls back to full split
+- [ ] splitSha updated correctly after push
+
+#### Error Handling
+- [ ] Dirty worktree prevents operations
+- [ ] Clear error messages for misconfiguration
+- [ ] Dry-run mode shows what would happen
+
+### platypus Wrapper Tests
+- [ ] `platypus svn` routes to platypus-svn.sh
+- [ ] `platypus subtree` routes to platypus-subtree.sh
+- [ ] `platypus help` shows usage
+- [ ] `platypus version` shows version
+- [ ] Unknown subcommand shows error
