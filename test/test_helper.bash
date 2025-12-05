@@ -17,8 +17,10 @@ export PLATYPUS_ROOT
 export PATH="$PLATYPUS_ROOT/lib:$PATH"
 
 # Temp directory for test repos (cleaned up after each test)
-# Use /tmp to ensure we're outside the Platypus repo (for "not in git repo" tests)
-export TEST_TMP="/tmp/platypus-test-$$"
+# Use mktemp for unique directories, enabling parallel test execution
+# The -t option ensures we're in /tmp (outside the Platypus repo for "not in git repo" tests)
+TEST_TMP="$(mktemp -d -t platypus-test.XXXXXX)"
+export TEST_TMP
 
 # Git user config for tests
 export GIT_AUTHOR_NAME="Test User"
@@ -89,7 +91,8 @@ create_bare_repo() {
 }
 
 # Create a monorepo with initial commit
-# Usage: create_monorepo <name>
+# Usage: create_monorepo [name]
+# shellcheck disable=SC2120  # Optional argument with default is intentional
 create_monorepo() {
   local name=${1:-monorepo}
   local dir
