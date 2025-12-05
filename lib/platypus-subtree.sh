@@ -1,0 +1,962 @@
+#!/usr/bin/env bash
+#
+# platypus-subtree.sh - Manage Git subtrees in the monorepo
+#
+# Copyright 2025 - Edgar Costa
+#
+# Part of Platypus - keeps Git monorepo in sync with SVN and subtrees.
+#
+# DESIGN DECISIONS:
+#
+# 1. Configuration stored in .gitsubtrees at repository root (like .gitmodules)
+#    - Enables direct use of `git subtree` without filtering
+#    - With 50k+ commits, in-directory config would require filter-branch on
+#      every push (hours of rewriting). Root config = zero filtering overhead.
+#
+# 2. Uses native `git subtree` commands directly
+#    - Mature, handles edge cases (merges, renames, empty commits)
+#    - We add value through: config management, incremental split optimization
+#    - Lower maintenance - upstream Git fixes benefit us automatically
+#
+# 3. Tracks splitSha for incremental push optimization
+#    - First push: full `git subtree split` (slow on large repos)
+#    - Subsequent pushes: `git subtree split --onto=<splitSha>` (fast!)
+#
+# Usage:
+#   platypus subtree <command> [options]
+#
+# Configuration file format (.gitsubtrees):
+#   [subtree "lib/foo"]
+#       remote = git@github.com:owner/foo.git
+#       branch = main
+#       upstream = <last synced upstream commit>
+#       parent = <monorepo commit at last sync>
+#       splitSha = <last split result for incremental push>
+#
+
+set -e
+
+#------------------------------------------------------------------------------
+# Configuration:
+#------------------------------------------------------------------------------
+
+VERSION=0.0.1
+CONFIG_FILE=".gitsubtrees"
+
+#------------------------------------------------------------------------------
+# Global state:
+#------------------------------------------------------------------------------
+
+quiet_wanted=false
+verbose_wanted=false
+dry_run=false
+debug_wanted=false
+
+# Will be set by find-repo-root
+REPO_ROOT=""
+CONFIG_PATH=""
+
+#------------------------------------------------------------------------------
+# Utility functions:
+#------------------------------------------------------------------------------
+
+say() {
+  $quiet_wanted || echo "$@"
+}
+
+o() {
+  $verbose_wanted && echo "  * $*" || true
+}
+
+debug() {
+  $debug_wanted && echo "DEBUG: $*" >&2 || true
+}
+
+err() {
+  echo "$@" >&2
+}
+
+error() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+# Run a command, optionally showing it in verbose/debug mode
+RUN() {
+  if $debug_wanted; then
+    echo "+ $*" >&2
+  elif $verbose_wanted; then
+    echo "  > $*" >&2
+  fi
+  
+  if $dry_run; then
+    return 0
+  fi
+  
+  "$@"
+}
+
+#------------------------------------------------------------------------------
+# Repository and config file location:
+#------------------------------------------------------------------------------
+
+# Find the repository root directory
+find-repo-root() {
+  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) ||
+    error "Not in a git repository."
+  CONFIG_PATH="$REPO_ROOT/$CONFIG_FILE"
+}
+
+# Ensure we're in a git repo and have found the config path
+ensure-repo-root() {
+  if [[ -z "$REPO_ROOT" ]]; then
+    find-repo-root
+  fi
+}
+
+#------------------------------------------------------------------------------
+# Configuration functions (.gitsubtrees):
+#
+# Config file uses git-config INI format, allowing us to use `git config -f`
+# for reading and writing. Example:
+#
+#   [subtree "lib/foo"]
+#       remote = git@github.com:owner/foo.git
+#       branch = main
+#       upstream = abc123...
+#       parent = def456...
+#       splitSha = 789abc...
+#------------------------------------------------------------------------------
+
+# Get a config value for a subtree
+# Usage: config:get <prefix> <key>
+config:get() {
+  local prefix=$1
+  local key=$2
+  ensure-repo-root
+  
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+  
+  git config -f "$CONFIG_PATH" "subtree.${prefix}.${key}" 2>/dev/null
+}
+
+# Set a config value for a subtree
+# Usage: config:set <prefix> <key> <value>
+config:set() {
+  local prefix=$1
+  local key=$2
+  local value=$3
+  ensure-repo-root
+  
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    cat > "$CONFIG_PATH" << 'EOF'
+# Platypus subtree configuration
+# This file tracks Git subtrees managed by platypus.
+# Format is similar to .gitmodules.
+#
+# Do not edit manually unless you know what you're doing.
+# Use: platypus subtree init/add/pull/push commands.
+
+EOF
+  fi
+  
+  git config -f "$CONFIG_PATH" "subtree.${prefix}.${key}" "$value"
+}
+
+# Remove a config key for a subtree
+# Usage: config:unset <prefix> <key>
+config:unset() {
+  local prefix=$1
+  local key=$2
+  ensure-repo-root
+  
+  if [[ -f "$CONFIG_PATH" ]]; then
+    git config -f "$CONFIG_PATH" --unset "subtree.${prefix}.${key}" 2>/dev/null || true
+  fi
+}
+
+# Remove entire subtree section from config
+# Usage: config:remove-section <prefix>
+config:remove-section() {
+  local prefix=$1
+  ensure-repo-root
+  
+  if [[ -f "$CONFIG_PATH" ]]; then
+    git config -f "$CONFIG_PATH" --remove-section "subtree.${prefix}" 2>/dev/null || true
+  fi
+}
+
+# Check if a subtree is configured
+# Usage: config:exists <prefix>
+config:exists() {
+  local prefix=$1
+  ensure-repo-root
+  
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+  
+  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${prefix//\//\\.}\\." &>/dev/null
+}
+
+# List all configured subtree prefixes
+# Usage: config:list
+config:list() {
+  ensure-repo-root
+  
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 0
+  fi
+  
+  git config -f "$CONFIG_PATH" --get-regexp '^subtree\.' 2>/dev/null |
+    sed -n 's/^subtree\.\([^.]*\)\.remote.*/\1/p' |
+    sort -u
+}
+
+# Get all config for a subtree as key=value lines
+# Usage: config:get-all <prefix>
+config:get-all() {
+  local prefix=$1
+  ensure-repo-root
+  
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 0
+  fi
+  
+  git config -f "$CONFIG_PATH" --get-regexp "^subtree\\.${prefix//\//\\.}\\." 2>/dev/null |
+    sed "s/^subtree\\.${prefix//\//\\.}\\.//"
+}
+
+#------------------------------------------------------------------------------
+# Subtree helper functions:
+#------------------------------------------------------------------------------
+
+# Assert that a subtree prefix is configured
+# Usage: subtree:assert-configured <prefix>
+subtree:assert-configured() {
+  local prefix=$1
+  
+  if ! config:exists "$prefix"; then
+    error "Subtree '$prefix' is not configured in $CONFIG_FILE.
+Use 'platypus subtree init $prefix' or 'platypus subtree add $prefix <repo>' first."
+  fi
+}
+
+# Assert that a directory exists and is not empty
+# Usage: subtree:assert-directory-exists <prefix>
+subtree:assert-directory-exists() {
+  local prefix=$1
+  ensure-repo-root
+  
+  local dir="$REPO_ROOT/$prefix"
+  if [[ ! -d "$dir" ]]; then
+    error "Directory '$prefix' does not exist."
+  fi
+  
+  if [[ -z "$(ls -A "$dir" 2>/dev/null)" ]]; then
+    error "Directory '$prefix' is empty."
+  fi
+}
+
+# Assert that a directory does NOT exist (for add command)
+# Usage: subtree:assert-directory-not-exists <prefix>
+subtree:assert-directory-not-exists() {
+  local prefix=$1
+  ensure-repo-root
+  
+  local dir="$REPO_ROOT/$prefix"
+  if [[ -d "$dir" ]] && [[ -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
+    error "Directory '$prefix' already exists and is not empty.
+Use 'platypus subtree init $prefix' to register an existing directory."
+  fi
+}
+
+# Fetch from a subtree's configured remote
+# Usage: subtree:fetch <prefix>
+subtree:fetch() {
+  local prefix=$1
+  
+  subtree:assert-configured "$prefix"
+  
+  local remote branch
+  remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
+  branch=$(config:get "$prefix" branch) || branch="main"
+  
+  o "Fetching $remote ($branch)..."
+  RUN git fetch "$remote" "$branch"
+}
+
+# Get the tracking ref name for a subtree
+# Usage: subtree:tracking-ref <prefix>
+subtree:tracking-ref() {
+  local prefix=$1
+  # Sanitize prefix for use in ref name (replace / with -)
+  echo "subtree/${prefix//\//-}"
+}
+
+# Assert the working tree is clean
+# Usage: subtree:assert-clean-worktree
+subtree:assert-clean-worktree() {
+  ensure-repo-root
+  cd "$REPO_ROOT"
+  
+  git update-index -q --ignore-submodules --refresh
+  
+  if ! git diff-files --quiet --ignore-submodules; then
+    error "Working tree has unstaged changes. Please commit or stash them first."
+  fi
+  
+  if ! git diff-index --quiet --ignore-submodules HEAD --; then
+    error "Working tree has staged but uncommitted changes. Please commit or stash them first."
+  fi
+}
+
+# Normalize a prefix (remove trailing slash, validate)
+# Usage: subtree:normalize-prefix <prefix>
+subtree:normalize-prefix() {
+  local prefix=$1
+  
+  # Remove trailing slash
+  prefix="${prefix%/}"
+  
+  # Remove leading slash
+  prefix="${prefix#/}"
+  
+  # Validate: no .., no absolute paths
+  if [[ "$prefix" == *".."* ]]; then
+    error "Invalid prefix: '$prefix' (contains '..')"
+  fi
+  
+  if [[ "$prefix" == /* ]]; then
+    error "Invalid prefix: '$prefix' (absolute path not allowed)"
+  fi
+  
+  if [[ -z "$prefix" ]]; then
+    error "Prefix cannot be empty"
+  fi
+  
+  echo "$prefix"
+}
+
+#------------------------------------------------------------------------------
+# Help:
+#------------------------------------------------------------------------------
+
+usage() {
+  cat <<'EOF'
+Usage: platypus subtree <command> [options]
+
+Manage Git subtrees in the monorepo. Configuration is stored in .gitsubtrees
+at the repository root (similar to .gitmodules).
+
+Commands:
+  init <prefix> [-r <remote>] [-b <branch>]
+                    Register an existing directory as a subtree
+  add <prefix> <repo> [<ref>]
+                    Add a new subtree from a remote repository
+  pull <prefix>     Pull upstream changes into subtree
+  push <prefix>     Push subtree changes to upstream
+  status [<prefix>] Show sync status of subtree(s)
+  list              List all configured subtrees
+
+Options:
+  -h, --help        Show this help message
+  -v, --verbose     Show verbose output
+  -q, --quiet       Suppress normal output
+  -n, --dry-run     Show what would be done without doing it
+  -d, --debug       Show debug output
+  --version         Show version information
+
+For init command:
+  -r, --remote      Remote repository URL
+  -b, --branch      Remote branch (default: main)
+
+Examples:
+  # Register existing lib/foo directory as a subtree
+  platypus subtree init lib/foo -r git@github.com:owner/foo.git
+
+  # Add a new subtree from a remote
+  platypus subtree add lib/bar git@github.com:owner/bar.git main
+
+  # Pull upstream changes
+  platypus subtree pull lib/foo
+
+  # Push local changes to upstream
+  platypus subtree push lib/foo
+
+  # Show status of all subtrees
+  platypus subtree status
+
+  # List all configured subtrees
+  platypus subtree list
+
+Configuration file (.gitsubtrees):
+  [subtree "lib/foo"]
+      remote = git@github.com:owner/foo.git
+      branch = main
+      upstream = <last synced upstream commit>
+      parent = <monorepo commit at last sync>
+      splitSha = <last split SHA for incremental push>
+EOF
+  exit 0
+}
+
+version() {
+  echo "platypus-subtree version $VERSION"
+  exit 0
+}
+
+#------------------------------------------------------------------------------
+# Commands:
+#------------------------------------------------------------------------------
+
+# Initialize an existing directory as a subtree
+# Usage: command:init <prefix> [-r <remote>] [-b <branch>]
+command:init() {
+  local prefix=""
+  local remote=""
+  local branch="main"
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -r|--remote)
+        remote="$2"
+        shift 2
+        ;;
+      -b|--branch)
+        branch="$2"
+        shift 2
+        ;;
+      -*)
+        error "Unknown option for init: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        else
+          error "Unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree init <prefix> [-r <remote>] [-b <branch>]"
+  
+  # Normalize and validate prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check directory exists
+  subtree:assert-directory-exists "$prefix"
+  
+  # Check not already configured
+  if config:exists "$prefix"; then
+    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+  fi
+  
+  # Prompt for remote if not provided
+  if [[ -z "$remote" ]]; then
+    err "No remote specified. Use -r <remote> to specify the upstream repository."
+    err "Example: platypus subtree init $prefix -r git@github.com:owner/repo.git"
+    error "Remote is required for init."
+  fi
+  
+  say "Initializing subtree '$prefix'..."
+  o "Remote: $remote"
+  o "Branch: $branch"
+  
+  # Create config entry
+  config:set "$prefix" remote "$remote"
+  config:set "$prefix" branch "$branch"
+  
+  # Record current state
+  local parent
+  parent=$(git rev-parse HEAD)
+  config:set "$prefix" parent "$parent"
+  
+  if $dry_run; then
+    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+  else
+    # Stage the config file
+    RUN git add "$CONFIG_PATH"
+    say "Subtree '$prefix' initialized."
+    say "Config added to $CONFIG_FILE (staged, not committed)."
+    say ""
+    say "Next steps:"
+    say "  1. Commit the config: git commit -m 'Add subtree config for $prefix'"
+    say "  2. To push changes upstream: platypus subtree push $prefix"
+  fi
+}
+
+# Add a new subtree from a remote repository
+# Usage: command:add <prefix> <repo> [<ref>]
+command:add() {
+  local prefix=""
+  local repo=""
+  local ref="main"
+  local squash_opt=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --squash)
+        squash_opt="--squash"
+        shift
+        ;;
+      -*)
+        error "Unknown option for add: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        elif [[ -z "$repo" ]]; then
+          repo="$1"
+        else
+          ref="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree add <prefix> <repo> [<ref>]"
+  [[ -n "$repo" ]] || error "Usage: platypus subtree add <prefix> <repo> [<ref>]"
+  
+  # Normalize prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check directory doesn't exist
+  subtree:assert-directory-not-exists "$prefix"
+  
+  # Check not already configured
+  if config:exists "$prefix"; then
+    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+  fi
+  
+  # Ensure clean worktree
+  subtree:assert-clean-worktree
+  
+  say "Adding subtree '$prefix' from $repo ($ref)..."
+  
+  if $dry_run; then
+    say "[dry-run] Would run: git subtree add --prefix=$prefix $squash_opt $repo $ref"
+    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    return 0
+  fi
+  
+  # Use git subtree add
+  RUN git subtree add --prefix="$prefix" $squash_opt "$repo" "$ref"
+  
+  # Record config
+  config:set "$prefix" remote "$repo"
+  config:set "$prefix" branch "$ref"
+  
+  # Record sync state
+  local upstream parent
+  upstream=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "")
+  parent=$(git rev-parse HEAD)
+  
+  if [[ -n "$upstream" ]]; then
+    config:set "$prefix" upstream "$upstream"
+  fi
+  config:set "$prefix" parent "$parent"
+  
+  # Stage and amend to include config
+  RUN git add "$CONFIG_PATH"
+  RUN git commit --amend --no-edit
+  
+  say "Subtree '$prefix' added from $repo ($ref)."
+}
+
+# Pull upstream changes into subtree
+# Usage: command:pull <prefix>
+command:pull() {
+  local prefix=""
+  local squash_opt=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --squash)
+        squash_opt="--squash"
+        shift
+        ;;
+      -*)
+        error "Unknown option for pull: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        else
+          error "Unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree pull <prefix>"
+  
+  # Normalize prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check configured
+  subtree:assert-configured "$prefix"
+  
+  # Ensure clean worktree
+  subtree:assert-clean-worktree
+  
+  # Get config
+  local remote branch
+  remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
+  branch=$(config:get "$prefix" branch) || branch="main"
+  
+  say "Pulling '$prefix' from $remote ($branch)..."
+  
+  if $dry_run; then
+    say "[dry-run] Would run: git fetch $remote $branch"
+    say "[dry-run] Would run: git subtree merge --prefix=$prefix $squash_opt FETCH_HEAD"
+    return 0
+  fi
+  
+  # Fetch
+  o "Fetching $remote $branch..."
+  RUN git fetch "$remote" "$branch"
+  
+  # Merge using git subtree
+  o "Merging into $prefix..."
+  RUN git subtree merge --prefix="$prefix" $squash_opt FETCH_HEAD
+  
+  # Update config
+  local upstream parent
+  upstream=$(git rev-parse FETCH_HEAD)
+  parent=$(git rev-parse HEAD)
+  
+  config:set "$prefix" upstream "$upstream"
+  config:set "$prefix" parent "$parent"
+  
+  # Stage config and amend
+  RUN git add "$CONFIG_PATH"
+  RUN git commit --amend --no-edit
+  
+  say "Subtree '$prefix' pulled from $remote ($branch)."
+}
+
+# Push subtree changes to upstream
+# Usage: command:push <prefix>
+command:push() {
+  local prefix=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -*)
+        error "Unknown option for push: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        else
+          error "Unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree push <prefix>"
+  
+  # Normalize prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check configured
+  subtree:assert-configured "$prefix"
+  
+  # Ensure clean worktree
+  subtree:assert-clean-worktree
+  
+  # Get config
+  local remote branch splitSha
+  remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
+  branch=$(config:get "$prefix" branch) || branch="main"
+  splitSha=$(config:get "$prefix" splitSha 2>/dev/null || echo "")
+  
+  say "Pushing '$prefix' to $remote ($branch)..."
+  
+  # Build split command with incremental optimization
+  local split_args="--prefix=$prefix"
+  local temp_branch="platypus-split-$$"
+  
+  if [[ -n "$splitSha" ]]; then
+    o "Using incremental split (--onto=$splitSha)"
+    split_args+=" --onto=$splitSha"
+  else
+    o "First push - full split required (this may take a while on large repos)"
+  fi
+  
+  if $dry_run; then
+    say "[dry-run] Would run: git subtree split $split_args -b $temp_branch"
+    say "[dry-run] Would run: git push $remote $temp_branch:$branch"
+    say "[dry-run] Would update splitSha in $CONFIG_FILE"
+    return 0
+  fi
+  
+  # Split
+  o "Splitting subtree..."
+  # shellcheck disable=SC2086
+  RUN git subtree split $split_args -b "$temp_branch"
+  
+  # Push
+  o "Pushing to $remote..."
+  RUN git push "$remote" "$temp_branch:$branch"
+  
+  # Update config with new split SHA
+  local new_splitSha
+  new_splitSha=$(git rev-parse "$temp_branch")
+  config:set "$prefix" splitSha "$new_splitSha"
+  
+  # Cleanup temp branch
+  RUN git branch -D "$temp_branch"
+  
+  # Commit config update
+  RUN git add "$CONFIG_PATH"
+  RUN git commit -m "platypus: update splitSha for $prefix"
+  
+  say "Subtree '$prefix' pushed to $remote ($branch)."
+}
+
+# Show status of subtree(s)
+# Usage: command:status [<prefix>]
+command:status() {
+  local prefix="${1:-}"
+  
+  ensure-repo-root
+  
+  if [[ -n "$prefix" ]]; then
+    # Status for single subtree
+    prefix=$(subtree:normalize-prefix "$prefix")
+    subtree:assert-configured "$prefix"
+    show-subtree-status "$prefix"
+  else
+    # Status for all subtrees
+    local subtrees
+    subtrees=$(config:list)
+    
+    if [[ -z "$subtrees" ]]; then
+      say "No subtrees configured."
+      say "Use 'platypus subtree init <prefix>' or 'platypus subtree add <prefix> <repo>' to add one."
+      return 0
+    fi
+    
+    while IFS= read -r p; do
+      show-subtree-status "$p"
+      echo ""
+    done <<< "$subtrees"
+  fi
+}
+
+# Helper to show status for a single subtree
+show-subtree-status() {
+  local prefix=$1
+  
+  local remote branch upstream parent splitSha
+  remote=$(config:get "$prefix" remote 2>/dev/null || echo "(not set)")
+  branch=$(config:get "$prefix" branch 2>/dev/null || echo "(not set)")
+  upstream=$(config:get "$prefix" upstream 2>/dev/null || echo "(not set)")
+  parent=$(config:get "$prefix" parent 2>/dev/null || echo "(not set)")
+  splitSha=$(config:get "$prefix" splitSha 2>/dev/null || echo "(not set)")
+  
+  say "Subtree: $prefix"
+  say "  Remote:   $remote"
+  say "  Branch:   $branch"
+  say "  Upstream: ${upstream:0:12}..."
+  say "  Parent:   ${parent:0:12}..."
+  say "  SplitSHA: ${splitSha:0:12}..."
+  
+  # Check if directory exists
+  if [[ ! -d "$REPO_ROOT/$prefix" ]]; then
+    say "  Status:   MISSING (directory does not exist)"
+    return
+  fi
+  
+  # Could add ahead/behind count here with git rev-list
+  say "  Status:   OK"
+}
+
+# List all configured subtrees
+# Usage: command:list
+command:list() {
+  ensure-repo-root
+  
+  local subtrees
+  subtrees=$(config:list)
+  
+  if [[ -z "$subtrees" ]]; then
+    say "No subtrees configured in $CONFIG_FILE."
+    return 0
+  fi
+  
+  if $quiet_wanted; then
+    echo "$subtrees"
+  else
+    say "Configured subtrees:"
+    while IFS= read -r prefix; do
+      local remote branch
+      remote=$(config:get "$prefix" remote 2>/dev/null || echo "")
+      branch=$(config:get "$prefix" branch 2>/dev/null || echo "main")
+      say "  $prefix -> $remote ($branch)"
+    done <<< "$subtrees"
+  fi
+}
+
+#------------------------------------------------------------------------------
+# Option parsing:
+#------------------------------------------------------------------------------
+
+get-options() {
+  local args=()
+  
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      -v|--verbose)
+        verbose_wanted=true
+        shift
+        ;;
+      -q|--quiet)
+        quiet_wanted=true
+        shift
+        ;;
+      -n|--dry-run)
+        dry_run=true
+        shift
+        ;;
+      -d|--debug)
+        debug_wanted=true
+        verbose_wanted=true
+        shift
+        ;;
+      --version)
+        version
+        ;;
+      --)
+        shift
+        args+=("$@")
+        break
+        ;;
+      -*)
+        # Pass through to command - might be command-specific option
+        args+=("$1")
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  # Return remaining args
+  printf '%s\n' "${args[@]}"
+}
+
+#------------------------------------------------------------------------------
+# Main:
+#------------------------------------------------------------------------------
+
+main() {
+  # Parse global options first
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      -v|--verbose)
+        verbose_wanted=true
+        shift
+        ;;
+      -q|--quiet)
+        quiet_wanted=true
+        shift
+        ;;
+      -n|--dry-run)
+        dry_run=true
+        shift
+        ;;
+      -d|--debug)
+        debug_wanted=true
+        verbose_wanted=true
+        shift
+        ;;
+      --version)
+        version
+        ;;
+      --)
+        shift
+        args+=("$@")
+        break
+        ;;
+      -*)
+        # Pass to command
+        args+=("$1")
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  set -- "${args[@]}"
+  
+  if [[ $# -eq 0 ]]; then
+    usage
+  fi
+
+  # Initialize repo root
+  find-repo-root
+
+  local command=$1
+  shift
+
+  case "$command" in
+    init)
+      command:init "$@"
+      ;;
+    add)
+      command:add "$@"
+      ;;
+    pull)
+      command:pull "$@"
+      ;;
+    push)
+      command:push "$@"
+      ;;
+    status)
+      command:status "$@"
+      ;;
+    list)
+      command:list "$@"
+      ;;
+    help|--help|-h)
+      usage
+      ;;
+    *)
+      error "Unknown subtree command: $command. Use 'platypus subtree --help' for usage."
+      ;;
+  esac
+}
+
+#------------------------------------------------------------------------------
+# Entry point (when run directly):
+#------------------------------------------------------------------------------
+
+[[ ${BASH_SOURCE[0]} != "$0" ]] || main "$@"
