@@ -155,9 +155,9 @@ Stored at repository root, uses git-config INI format:
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
     branch = main
-    upstream = abc123...    # Last synced upstream commit
-    parent = def456...      # Monorepo commit at last sync
-    splitSha = 789abc...    # Last split result (for incremental push)
+    upstream = abc123...         # Last synced upstream commit
+    preMergeParent = def456... # Monorepo commit BEFORE last sync
+    splitSha = 789abc...         # Last split result (for incremental push)
 ```
 
 **Examples:**

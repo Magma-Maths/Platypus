@@ -62,21 +62,21 @@ The `.gitsubtrees` file tracks three important SHA values for each subtree:
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
     branch = main
-    upstream = abc123...    # Last synced upstream commit
-    parent = def456...      # Monorepo commit at last sync  
-    splitSha = 789abc...    # Last split result (for incremental push)
+    upstream = abc123...         # Last synced upstream commit
+    preMergeParent = def456... # Monorepo commit BEFORE last sync  
+    splitSha = 789abc...         # Last split result (for incremental push)
 ```
 
 | Field | Purpose | Set By |
 |-------|---------|--------|
 | `upstream` | Points to the upstream repo commit we last synced with | `add`, `pull` |
-| `parent` | Points to the monorepo commit after last sync operation | `add`, `pull`, `push` |
+| `preMergeParent` | Points to the monorepo commit BEFORE the sync operation | `add`, `pull`, `push` |
 | `splitSha` | Points to the extracted subtree history branch tip | `push` only |
 
 **Why track these?**
 
 - `upstream`: Tells us "what upstream commit is our subtree based on?" Used to detect if upstream has new changes.
-- `parent`: Tells us "what monorepo state was this config written at?" Used for debugging and tracking.
+- `preMergeParent`: Tells us "where was the monorepo before this sync?" This is a **stable reference** that doesn't change when we amend the merge commit to include config. Used for detecting new changes since last sync.
 - `splitSha`: Enables **incremental push optimization**. Without it, `git subtree split` must walk the entire repo history. With it, we can use `--rejoin` to mark split points, making subsequent splits much faster.
 
 ---
@@ -115,9 +115,9 @@ Upstream: X ────┘
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
     branch = main
-    upstream = X        # ← The upstream commit we added
-    parent = B          # ← The mono commit after adding
-    splitSha = (none)   # ← Not set until first push
+    upstream = X              # ← The upstream commit we added
+    preMergeParent = A      # ← Mono commit BEFORE the merge (stable!)
+    splitSha = (none)         # ← Not set until first push
 ```
 
 ---
@@ -143,7 +143,7 @@ Mono:     A ─── B ─── C (mono work)
              ╱
 Upstream: X ─── Y ─── Z (new commits)
 
-Config: upstream=X, parent=B, splitSha=(none)
+Config: upstream=X, preMergeParent=A, splitSha=(none)
 ```
 
 **After:**
@@ -152,21 +152,21 @@ Mono:     A ─── B ─── C ─── D (Merge subtree from Z)
              ╱             ╱
 Upstream: X ─── Y ─── Z ──┘
 
-Config: upstream=Z, parent=D, splitSha=(none)
-                 ▲        ▲
-                 │        └── Updated to new mono HEAD
+Config: upstream=Z, preMergeParent=C, splitSha=(none)
+                 ▲                   ▲
+                 │                   └── Captured BEFORE the merge (stable!)
                  └── Updated to fetched upstream tip
 ```
 
 The merge commit D contains:
 - All files from Z in the `lib/foo/` prefix
-- Updated `.gitsubtrees` with new `upstream` and `parent` SHAs
+- Updated `.gitsubtrees` with new `upstream` and `preMergeParent` SHAs
 
 **Config changes:**
 | Field | Before | After |
 |-------|--------|-------|
 | `upstream` | X | Z (new upstream tip) |
-| `parent` | B | D (new mono HEAD) |
+| `preMergeParent` | A | C (mono HEAD before merge) |
 | `splitSha` | (none) | (unchanged) |
 
 ---
@@ -192,7 +192,7 @@ Mono:     A ─── B ─── C (changed lib/foo/file.txt)
              ╱
 Upstream: X ───────────
 
-Config: upstream=X, parent=B, splitSha=(none)
+Config: upstream=X, preMergeParent=B, splitSha=(none)
 ```
 
 **The split operation extracts subtree commits:**
@@ -211,10 +211,10 @@ Upstream: X ─────────────── C' (pushed)
                             │
                             └── splitSha points here
 
-Config: upstream=X, parent=D, splitSha=C'
-                        ▲            ▲
-                        │            └── NEW: tracks split result
-                        └── Updated to rejoin commit
+Config: upstream=X, preMergeParent=C, splitSha=C'
+                                    ▲            ▲
+                                    │            └── NEW: tracks split result
+                                    └── Captured BEFORE rejoin (stable!)
 ```
 
 The `--rejoin` creates a merge commit marking where we split. This makes
@@ -224,7 +224,7 @@ subsequent pushes faster because `git subtree split` can skip already-processed 
 | Field | Before | After |
 |-------|--------|-------|
 | `upstream` | X | X (unchanged - we pushed TO upstream, not pulled) |
-| `parent` | B | D (new mono HEAD after rejoin) |
+| `preMergeParent` | B | C (mono HEAD before rejoin) |
 | `splitSha` | (none) | C' (the extracted subtree branch tip) |
 
 **Why splitSha matters:**
@@ -267,7 +267,7 @@ Mono:     A ─── B ─── C (mono change)
              ╱
 Upstream: X ─── Y (upstream change)
 
-Config: upstream=X, parent=B, splitSha=(none)
+Config: upstream=X, preMergeParent=A, splitSha=(none)
 ```
 
 **After pull phase:**
@@ -276,7 +276,7 @@ Mono:     A ─── B ─── C ─── D (merge from upstream)
              ╱             ╱
 Upstream: X ─── Y ────────┘
 
-Config: upstream=Y, parent=D, splitSha=(none)
+Config: upstream=Y, preMergeParent=C, splitSha=(none)
 ```
 
 **After push phase:**
@@ -287,16 +287,16 @@ Upstream: X ─── Y ────────┴───── C' (mono chan
                                   │
                                   └── splitSha
 
-Config: upstream=Y, parent=E, splitSha=C'
+Config: upstream=Y, preMergeParent=D, splitSha=C'
 ```
 
 **Full config evolution during sync:**
 
-| Phase | upstream | parent | splitSha |
-|-------|----------|--------|----------|
-| Before | X | B | (none) |
-| After pull | Y | D | (none) |
-| After push | Y | E | C' |
+| Phase | upstream | preMergeParent | splitSha |
+|-------|----------|------------------|----------|
+| Before | X | A | (none) |
+| After pull | Y | C | (none) |
+| After push | Y | D | C' |
 
 After sync, both repos have all changes:
 - Upstream has: X → Y → C' (both upstream's Y and mono's C)
@@ -505,28 +505,28 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
     branch = main
-    upstream = abc123...    # Last synced upstream commit
-    parent = def456...      # Monorepo commit at last sync
-    splitSha = 789abc...    # Last split SHA (for incremental push)
+    upstream = abc123...         # Last synced upstream commit
+    preMergeParent = def456... # Monorepo commit BEFORE last sync
+    splitSha = 789abc...         # Last split SHA (for incremental push)
 ```
 
 **Config field lifecycle:**
 
 ```
-                    ┌─────────────────────────────────────────────────────┐
-                    │              Config Field Updates                    │
-                    ├─────────────┬─────────────┬─────────────┬───────────┤
-                    │   add       │   pull      │   push      │   sync    │
-┌───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
-│ upstream          │  SET        │  UPDATE     │  -          │  UPDATE   │
-│ (upstream tip)    │  (fetched)  │  (fetched)  │             │  (pull)   │
-├───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
-│ parent            │  SET        │  UPDATE     │  UPDATE     │  UPDATE   │
-│ (mono HEAD)       │  (after op) │  (after op) │  (rejoin)   │  (both)   │
-├───────────────────┼─────────────┼─────────────┼─────────────┼───────────┤
-│ splitSha          │  -          │  -          │  SET/UPDATE │  UPDATE   │
-│ (split result)    │             │             │  (split)    │  (push)   │
-└───────────────────┴─────────────┴─────────────┴─────────────┴───────────┘
+                    ┌───────────────────────────────────────────────────────────┐
+                    │                Config Field Updates                        │
+                    ├─────────────┬─────────────┬─────────────┬─────────────────┤
+                    │   add       │   pull      │   push      │   sync          │
+┌───────────────────┼─────────────┼─────────────┼─────────────┼─────────────────┤
+│ upstream          │  SET        │  UPDATE     │  -          │  UPDATE         │
+│ (upstream tip)    │  (fetched)  │  (fetched)  │             │  (pull phase)   │
+├───────────────────┼─────────────┼─────────────┼─────────────┼─────────────────┤
+│ preMergeParent    │  SET        │  UPDATE     │  UPDATE     │  UPDATE         │
+│ (before merge)    │  (pre-add)  │  (pre-merge)│  (pre-join) │  (both phases)  │
+├───────────────────┼─────────────┼─────────────┼─────────────┼─────────────────┤
+│ splitSha          │  -          │  -          │  SET/UPDATE │  UPDATE         │
+│ (split result)    │             │             │  (split)    │  (push phase)   │
+└───────────────────┴─────────────┴─────────────┴─────────────┴─────────────────┘
 ```
 
 ### Environment Variables (SVN)
