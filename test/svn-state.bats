@@ -89,7 +89,7 @@ create_fake_state() {
   run platypus svn --continue
   [ "$status" -ne 0 ]
   # Should fail due to dirty worktree, not missing state
-  [[ "$output" == *"Unstaged"* ]] || [[ "$output" == *"uncommitted"* ]]
+  [[ "$output" == *"unstaged"* ]] || [[ "$output" == *"uncommitted"* ]]
 }
 
 #------------------------------------------------------------------------------
