@@ -34,17 +34,20 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global init.defaultBranch main
 
-      - name: Debug - Test the problematic files
+      - name: Debug - Test with and without filter-tags
         run: |
           source .rc
           echo "=== Bats version ==="
           bats --version
           echo ""
-          echo "=== Test svn-pull.bats (should have 11 tests) ==="
-          bats --filter-tags '!docker' test/svn-pull.bats
+          echo "=== Test svn-pull.bats WITHOUT --filter-tags ==="
+          bats test/svn-pull.bats
           echo ""
-          echo "=== Test svn-push.bats (should have 15 tests) ==="
-          bats --filter-tags '!docker' test/svn-push.bats
+          echo "=== Test svn-pull.bats WITH --filter-tags ==="
+          bats --filter-tags '!docker' test/svn-pull.bats || true
+          echo ""
+          echo "=== Checking test file for any issues ==="
+          head -150 test/svn-pull.bats | cat -A | head -50
       
       - name: Run tests (excluding Docker tests)
         run: ./test/run-tests.sh --tests --no-docker
