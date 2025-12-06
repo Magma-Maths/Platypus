@@ -19,12 +19,6 @@ services:
       - svn-data:/home/svn
     environment:
       - SVN_REPONAME=repos
-    healthcheck:
-      test: ["CMD", "svnadmin", "info", "/home/svn/repos"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
 
 volumes:
   svn-data:

@@ -74,12 +74,18 @@ jobs:
 
       - name: Start SVN server
         run: |
-          docker compose -f test/docker/svn-server/docker-compose.yml up -d --wait
-          # Wait for SVN to be ready
-          for i in {1..30}; do
-            docker exec platypus-svn-server svnadmin info /home/svn/repos && break
-            sleep 1
-          done
+          docker compose -f test/docker/svn-server/docker-compose.yml up -d
+          # Wait for container to be running
+          sleep 3
+          # Create repo if it doesn't exist (the image doesn't auto-create it)
+          docker exec platypus-svn-server sh -c '
+            if [ ! -d /home/svn/repos ]; then
+              svnadmin create /home/svn/repos
+              chown -R apache:apache /home/svn/repos
+            fi
+          '
+          # Verify it works
+          docker exec platypus-svn-server svnadmin info /home/svn/repos
 
       - name: Run Docker tests
         run: ./test/run-tests.sh --docker
