@@ -12,6 +12,24 @@
 #
 
 #------------------------------------------------------------------------------
+# Version constants (single source of truth):
+#------------------------------------------------------------------------------
+
+# shellcheck disable=SC2034  # Used by other modules via source
+PLATYPUS_VERSION=0.1.0
+# shellcheck disable=SC2034  # Used by other modules via source
+PLATYPUS_SVN_VERSION=0.1.0
+# shellcheck disable=SC2034  # Used by other modules via source
+PLATYPUS_SUBTREE_VERSION=0.1.0
+
+#------------------------------------------------------------------------------
+# Configuration constants:
+#------------------------------------------------------------------------------
+
+# shellcheck disable=SC2034  # Used by other modules via source
+PLATYPUS_SUBTREE_CONFIG=.gitsubtrees
+
+#------------------------------------------------------------------------------
 # Global state variables (shared across modules):
 #------------------------------------------------------------------------------
 
@@ -218,6 +236,52 @@ common:parse-options() {
         ;;
     esac
   done
+}
+
+#------------------------------------------------------------------------------
+# Common CLI dispatch helper:
+#------------------------------------------------------------------------------
+
+# Common CLI dispatch pattern for modules
+# Handles option parsing, help/version, and delegates to handler function
+# Usage: common:dispatch <usage_fn> <version_fn> <handler_fn> [args...]
+#   usage_fn: Function to call for --help or when no subcommand provided
+#   version_fn: Function to call for --version
+#   handler_fn: Function to call with remaining args for command dispatch
+common:dispatch() {
+  local usage_fn=$1
+  local version_fn=$2
+  local handler_fn=$3
+  shift 3
+  
+  # Parse common options - this sets COMMON_PARSE_OPTIONS_REMAINING array
+  common:parse-options "$@"
+  eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
+  
+  # Handle help/version
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        "$usage_fn"
+        return 0
+        ;;
+      --version)
+        "$version_fn"
+        return 0
+        ;;
+      *)
+        break
+        ;;
+    esac
+    shift
+  done
+  
+  if [[ $# -eq 0 ]]; then
+    "$usage_fn"
+    return 1
+  fi
+  
+  "$handler_fn" "$@"
 }
 
 #------------------------------------------------------------------------------
