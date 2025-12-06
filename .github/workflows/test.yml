@@ -55,7 +55,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install bats-core
+      - name: Install bats-core and subversion
         run: |
           sudo apt-get update
           sudo apt-get install -y bats subversion

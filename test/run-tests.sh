@@ -125,13 +125,27 @@ check_deps() {
 
   if $RUN_TESTS && ! command -v bats &> /dev/null; then
     error "bats is not installed"
-    echo "  Install with: sudo apt-get install bats          (Linux)"
-    echo "                brew install bats-core             (macOS)"
+    echo "  Install with: npm install -g bats               (Any OS)"
+    echo "                brew install bats-core            (macOS)"
     missing=1
   fi
 
   if [[ $missing -eq 1 ]]; then
     exit 1
+  fi
+  
+  # Print versions if verbose or for debugging CI issues
+  if [[ "${VERBOSE:-}" == "1" ]] || [[ "${CI:-}" == "true" ]]; then
+    echo "Tool versions:"
+    if command -v bats &> /dev/null; then
+      echo "  bats: $(bats --version 2>/dev/null || echo 'unknown')"
+    fi
+    if command -v shellcheck &> /dev/null; then
+      echo "  shellcheck: $(shellcheck --version 2>/dev/null | head -2 | tail -1 || echo 'unknown')"
+    fi
+    echo "  git: $(git --version 2>/dev/null || echo 'unknown')"
+    echo "  bash: ${BASH_VERSION:-unknown}"
+    echo ""
   fi
 }
 
