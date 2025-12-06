@@ -24,7 +24,8 @@ set -e
 # Configuration:
 #------------------------------------------------------------------------------
 
-VERSION=0.1.0
+# Read version from common (with fallback)
+: "${PLATYPUS_VERSION:=0.1.0}"
 
 # Get the root directory of Platypus
 # If PLATYPUS_ROOT is set (from .rc), use it; otherwise compute from script location
@@ -56,10 +57,8 @@ source "$LIB_DIR/platypus-common.bash"
 
 # shellcheck source=platypus-svn
 source "$LIB_DIR/platypus-svn"
-SVN_VERSION="$VERSION"
 # shellcheck source=platypus-subtree
 source "$LIB_DIR/platypus-subtree"
-SUBTREE_VERSION="$VERSION"
 
 #------------------------------------------------------------------------------
 # Help:
@@ -93,9 +92,9 @@ EOF
 }
 
 show-version() {
-  echo "platypus version $VERSION"
-  echo "  svn module: $SVN_VERSION"
-  echo "  subtree module: $SUBTREE_VERSION"
+  echo "platypus version $PLATYPUS_VERSION"
+  echo "  svn module: $PLATYPUS_SVN_VERSION"
+  echo "  subtree module: $PLATYPUS_SUBTREE_VERSION"
 }
 
 #------------------------------------------------------------------------------
