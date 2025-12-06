@@ -34,18 +34,17 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global init.defaultBranch main
 
-      - name: Debug - Run each test file individually
+      - name: Debug - Test the problematic files
         run: |
           source .rc
           echo "=== Bats version ==="
           bats --version
           echo ""
-          echo "=== Running each test file individually ==="
-          for f in test/*.bats; do
-            echo "--- $f ---"
-            bats --filter-tags '!docker' "$f" 2>&1 | tail -3
-            echo ""
-          done
+          echo "=== Test svn-pull.bats (should have 11 tests) ==="
+          bats --filter-tags '!docker' test/svn-pull.bats
+          echo ""
+          echo "=== Test svn-push.bats (should have 15 tests) ==="
+          bats --filter-tags '!docker' test/svn-push.bats
       
       - name: Run tests (excluding Docker tests)
         run: ./test/run-tests.sh --tests --no-docker
