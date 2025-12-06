@@ -127,12 +127,15 @@ Manage Git subtrees in the monorepo using native `git subtree` commands.
 platypus subtree <command> [options]
 
 Commands:
+  create <prefix> <upstream> [-b <branch>]
+                    Export existing directory to a new upstream repo
   init <prefix> [-r <remote>] [-b <branch>]
-                    Register an existing directory as a subtree
+                    Link existing directory to an existing upstream
   add <prefix> <repo> [<ref>]
                     Add a new subtree from a remote repository
   pull <prefix>     Pull upstream changes into subtree
   push <prefix>     Push subtree changes to upstream
+  sync <prefix>     Bidirectional sync (pull then push)
   status [<prefix>] Show sync status of subtree(s)
   list              List all configured subtrees
 
@@ -144,6 +147,14 @@ Options:
   -d, --debug       Show debug output
   --version         Show version information
 ```
+
+**Command Summary:**
+
+| Command | Use Case | Creates Dir? | Establishes Merge Base? |
+|---------|----------|--------------|------------------------|
+| `create` | Export existing dir to new upstream | No | Yes (via split --rejoin) |
+| `init` | Link existing dir to existing upstream | No | Yes (via merge) |
+| `add` | Add external repo as new subtree | Yes | Yes (via subtree add) |
 
 **Configuration file (`.gitsubtrees`):**
 
@@ -163,10 +174,13 @@ Stored at repository root, uses git-config INI format:
 **Examples:**
 
 ```bash
-# Register existing lib/foo directory as a subtree
+# Export existing lib/foo to a new upstream repo (for SVN migration)
+platypus subtree create lib/foo git@github.com:owner/foo.git
+
+# Link existing lib/foo to an existing upstream
 platypus subtree init lib/foo -r git@github.com:owner/foo.git
 
-# Add a new subtree from a remote
+# Add a new subtree from a remote (creates the directory)
 platypus subtree add lib/bar git@github.com:owner/bar.git main
 
 # Pull upstream changes
@@ -175,26 +189,44 @@ platypus subtree pull lib/foo
 # Push local changes to upstream (uses incremental split)
 platypus subtree push lib/foo
 
+# Bidirectional sync
+platypus subtree sync lib/foo
+
 # Show status of all subtrees
 platypus subtree status
-
-# List all configured subtrees
-platypus subtree list
 ```
 
-**Workflow:**
+**Workflow (SVN to Git Migration):**
 
 ```text
-1. Add subtree:      platypus subtree add lib/foo <repo> main
+1. Clone from SVN:   git svn clone svn://server/repo monorepo
+                     (get your monorepo from SVN)
+
+2. Create subtree:   platypus subtree create lib/foo git@github.com:owner/foo.git
+                     (exports lib/foo to public repo)
+
+3. Work on code:     Edit files in lib/foo/ as normal
+
+4. Pull upstream:    platypus subtree pull lib/foo
+                     (fetches + merges external contributions)
+
+5. Push changes:     platypus subtree push lib/foo
+                     (git subtree split --onto=<cached> + push)
+
+6. Sync to SVN:      platypus svn push
+                     (pushes all monorepo changes back to SVN)
+```
+
+**Workflow (Add External Library):**
+
+```text
+1. Add subtree:      platypus subtree add lib/bar <repo> main
                      (creates directory, adds to .gitsubtrees)
 
-2. Work on code:     Edit files in lib/foo/ as normal
+2. Work on code:     Edit files in lib/bar/ as normal
 
-3. Pull upstream:    platypus subtree pull lib/foo
-                     (fetches + git subtree merge)
-
-4. Push changes:     platypus subtree push lib/foo
-                     (git subtree split --onto=<cached> + push)
+3. Sync changes:     platypus subtree sync lib/bar
+                     (pull + push in one command)
 ```
 
 ## Conflict Handling

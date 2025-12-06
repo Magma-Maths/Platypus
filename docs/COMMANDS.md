@@ -7,7 +7,9 @@ showing repository states before and after each operation.
 
 - [Subtree Commands](#subtree-commands)
   - [Configuration Tracking](#configuration-tracking)
-  - [subtree add](#subtree-add)
+  - [subtree create](#subtree-create) — Export existing directory to new upstream
+  - [subtree init](#subtree-init) — Link existing directory to existing upstream
+  - [subtree add](#subtree-add) — Add external repo as new subtree
   - [subtree pull](#subtree-pull)
   - [subtree push](#subtree-push)
   - [subtree sync](#subtree-sync)
@@ -69,9 +71,17 @@ The `.gitsubtrees` file tracks three important SHA values for each subtree:
 
 | Field | Purpose | Set By |
 |-------|---------|--------|
-| `upstream` | Points to the upstream repo commit we last synced with | `add`, `pull` |
-| `preMergeParent` | Points to the monorepo commit BEFORE the sync operation | `add`, `pull`, `push` |
-| `splitSha` | Points to the extracted subtree history branch tip | `push` only |
+| `upstream` | Points to the upstream repo commit we last synced with | `create`, `init`, `add`, `pull` |
+| `preMergeParent` | Points to the monorepo commit BEFORE the sync operation | `create`, `init`, `add`, `pull`, `push` |
+| `splitSha` | Points to the extracted subtree history branch tip | `create`, `push` |
+
+**Command Summary:**
+
+| Command | Use Case | Creates Dir? | Establishes Merge Base? |
+|---------|----------|--------------|------------------------|
+| `create` | Export existing dir to new upstream | No | Yes (via split --rejoin) |
+| `init` | Link existing dir to existing upstream | No | Yes (via merge) |
+| `add` | Add external repo as new subtree | Yes | Yes (via subtree add) |
 
 **Why track these?**
 
@@ -81,9 +91,110 @@ The `.gitsubtrees` file tracks three important SHA values for each subtree:
 
 ---
 
+### subtree create
+
+**Purpose:** Export an existing directory to a new upstream repository.
+
+**Use Case:** You have a directory in your monorepo (e.g., from SVN migration) and want
+to make it available as a standalone repository for external contributors.
+
+**Usage:**
+```bash
+platypus subtree create <prefix> <upstream> [-b <branch>]
+```
+
+**What it does:**
+1. Validates the directory exists
+2. Tests that the upstream repository is accessible
+3. Runs `git subtree split --prefix --rejoin` to extract history and create merge base
+4. Pushes the split branch to the upstream repository
+5. Creates configuration in `.gitsubtrees`
+6. Amends the rejoin commit to include config
+
+**Before:**
+```
+Mono:     A ─── B ─── C (contains lib/foo directory)
+                                                     
+Upstream: (empty repo, waiting for content)          
+```
+
+**After:**
+```
+Mono:     A ─── B ─── C ─── D (split --rejoin merge)
+                           ╱
+                    X ────┘  (extracted lib/foo history)
+                    │
+Upstream:           X        (pushed to upstream)
+
+Config: upstream=X, preMergeParent=C, splitSha=X
+```
+
+**Config state after `create`:**
+```ini
+[subtree "lib/foo"]
+    remote = git@github.com:owner/foo.git
+    branch = main
+    upstream = X              # ← The split/pushed commit
+    preMergeParent = C      # ← Mono commit BEFORE the rejoin
+    splitSha = X              # ← Same as upstream (enables incremental push)
+```
+
+---
+
+### subtree init
+
+**Purpose:** Link an existing directory to an existing upstream repository.
+
+**Use Case:** The directory already has content, and there's an existing upstream repo
+(perhaps already set up by someone else). This establishes the merge base so future
+pulls work correctly.
+
+**Usage:**
+```bash
+platypus subtree init <prefix> [-r <remote>] [-b <branch>]
+```
+
+**What it does:**
+1. Validates the directory exists
+2. Fetches from the upstream repository
+3. Merges with `--allow-unrelated-histories` to establish subtree relationship
+4. Creates configuration in `.gitsubtrees`
+5. Amends the merge commit to include config
+
+**Before:**
+```
+Mono:     A ─── B ─── C (contains lib/foo, unrelated to upstream)
+                                                     
+Upstream: X ─── Y ─── Z (existing upstream content)
+```
+
+**After:**
+```
+Mono:     A ─── B ─── C ─── D (Merge to establish relationship)
+                           ╱
+Upstream: X ─── Y ─── Z ──┘
+
+Config: upstream=Z, preMergeParent=C, splitSha=(none)
+```
+
+**Config state after `init`:**
+```ini
+[subtree "lib/foo"]
+    remote = git@github.com:owner/foo.git
+    branch = main
+    upstream = Z              # ← Current upstream tip
+    preMergeParent = C      # ← Mono commit BEFORE the merge
+    splitSha = (none)         # ← Not set until first push
+```
+
+---
+
 ### subtree add
 
-**Purpose:** Add a new subtree from a remote repository.
+**Purpose:** Add a new subtree from a remote repository (creates the directory).
+
+**Use Case:** You want to incorporate an external repository as a subdirectory in your
+monorepo. The directory doesn't exist yet - it will be created with the upstream content.
 
 **Usage:**
 ```bash
