@@ -40,7 +40,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
 # Configuration defaults:
 #------------------------------------------------------------------------------
 
-VERSION=0.0.1
+# Read version from common (with fallback for standalone sourcing)
+: "${PLATYPUS_SVN_VERSION:=0.0.0}"
 REQUIRED_GIT_VERSION=2.7.0
 
 # Git remote name
@@ -215,7 +216,7 @@ Automation example:
 
 # Show version:
 version() {
-  echo "platypus-svn version $VERSION"
+  echo "platypus-svn version $PLATYPUS_SVN_VERSION"
   exit 0
 }
 
@@ -403,7 +404,7 @@ svn:command:continue() {
 
 # Pull latest changes from SVN:
 svn:command:pull() {
-  say "=== platypus svn pull v$VERSION ==="
+  say "=== platypus svn pull v$PLATYPUS_SVN_VERSION ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
   
@@ -455,7 +456,7 @@ svn:command:pull() {
 
 # Push Git commits to SVN:
 svn:command:push() {
-  say "=== platypus svn push v$VERSION ==="
+  say "=== platypus svn push v$PLATYPUS_SVN_VERSION ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
   $push_conflicts && say "[PUSH CONFLICTS MODE]"
@@ -850,14 +851,36 @@ sync:merge-back() {
 }
 
 #------------------------------------------------------------------------------
+# Command dispatch:
+#------------------------------------------------------------------------------
+
+svn:dispatch() {
+  local cmd=$1
+  shift
+  
+  case "$cmd" in
+    pull)
+      svn:command:pull "$@"
+      ;;
+    push)
+      svn:command:push "$@"
+      ;;
+    help|--help|-h)
+      usage
+      ;;
+    *)
+      error "Unknown svn command: $cmd. Use 'platypus svn --help' for usage."
+      ;;
+  esac
+}
+
+#------------------------------------------------------------------------------
 # Main function:
 #------------------------------------------------------------------------------
 
 svn:main() {
-  # Parse global options first using common parser
-  # Note: We handle SVN-specific options (--push-conflicts, --continue, --abort) separately
+  # Handle SVN-specific flags (--push-conflicts, --continue, --abort) first
   local args=()
-  local svn_specific_args=()
   
   # First pass: extract SVN-specific options
   while [[ $# -gt 0 ]]; do
@@ -881,25 +904,9 @@ svn:main() {
     esac
   done
   
-  # Now parse common options
+  # Parse common options to set verbose_wanted, quiet_wanted, debug_wanted
   common:parse-options "${args[@]}"
   eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
-  
-  # Handle --help and --version
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -h|--help)
-        usage
-        ;;
-      --version)
-        version
-        ;;
-      *)
-        break
-        ;;
-    esac
-    shift
-  done
   
   # Verbose implies not quiet
   if $verbose_wanted; then
@@ -929,28 +936,8 @@ svn:main() {
     exit 0
   fi
   
-  # Require a subcommand
-  if [[ $# -eq 0 ]]; then
-    usage
-  fi
-  
-  local command=$1
-  shift
-  
-  case "$command" in
-    pull)
-      svn:command:pull "$@"
-      ;;
-    push)
-      svn:command:push "$@"
-      ;;
-    help|--help|-h)
-      usage
-      ;;
-    *)
-      error "Unknown svn command: $command. Use 'platypus svn --help' for usage."
-      ;;
-  esac
+  # Use common dispatch for the rest (it will parse again, but that's harmless)
+  common:dispatch usage version svn:dispatch "$@"
 }
 
 #------------------------------------------------------------------------------
