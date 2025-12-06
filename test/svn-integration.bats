@@ -383,7 +383,7 @@ setup_platypus_svn_repo() {
 
 # bats test_tags=docker
 @test "svn push --dry-run: shows what would happen without modifying" {
-  setup_platypus_svn_repo "dry-run-test"
+  setup_platypus_svn_repo "dry-run-test-$$"
   
   cd "$GIT_REPO"
   

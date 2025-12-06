@@ -661,6 +661,12 @@ sync:export-commit() {
   o "Export commit $(git:short-hash "$commit")"
   current_commit=$commit
 
+  # In dry-run mode, skip actual patch application
+  if $dry_run; then
+    say "  [dry-run] Would export: $(git:short-hash "$commit")"
+    return 0
+  fi
+
   # Try 1: Normal apply
   if git diff --binary "$p1" "$commit" | git apply --index 2>/dev/null; then
     : # Success - normal apply worked
