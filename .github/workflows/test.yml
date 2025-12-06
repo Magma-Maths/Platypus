@@ -21,9 +21,11 @@ jobs:
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
+          # Remove PPA git to use Ubuntu's git + git-svn (PPA git doesn't include git-svn)
+          sudo apt-get remove -y git git-man || true
+          sudo add-apt-repository --remove ppa:git-core/ppa || true
           sudo apt-get update
-          # libsvn-perl provides Perl bindings for git-svn (the PPA git already includes git-svn)
-          sudo apt-get install -y bats libsvn-perl
+          sudo apt-get install -y bats git git-svn
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -58,9 +60,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # Remove PPA git to use Ubuntu's git + git-svn
+          sudo apt-get remove -y git git-man || true
+          sudo add-apt-repository --remove ppa:git-core/ppa || true
           sudo apt-get update
-          # libsvn-perl provides Perl bindings for git-svn; subversion for svn client
-          sudo apt-get install -y bats libsvn-perl subversion
+          sudo apt-get install -y bats git git-svn subversion
 
       - name: Set up Git identity
         run: |
