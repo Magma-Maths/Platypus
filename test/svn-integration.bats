@@ -489,8 +489,8 @@ setup_platypus_svn_repo() {
   ) >/dev/null 2>&1
   
   #---------------------------------------------------------------------------
-  # Create upstream repos by splitting out the lib directories
-  # This preserves the history relationship for proper merges
+  # Use 'platypus subtree create' to export lib directories as subtrees
+  # This does split --rejoin + push + config in one command
   #---------------------------------------------------------------------------
   
   cd "$GIT_REPO"
@@ -501,13 +501,13 @@ setup_platypus_svn_repo() {
   git init --bare "$lib1_bare" >/dev/null 2>&1
   git init --bare "$lib2_bare" >/dev/null 2>&1
   
-  # Split lib1 out with --rejoin to establish the subtree merge base
-  git subtree split --prefix=lib1 --rejoin -b lib1-split >/dev/null 2>&1
-  git push "$lib1_bare" lib1-split:main >/dev/null 2>&1
+  # Use create command to export lib1 (split + push + config)
+  run platypus subtree create lib1 "$lib1_bare" -b main
+  [ "$status" -eq 0 ]
   
-  # Split lib2 out with --rejoin to establish the subtree merge base
-  git subtree split --prefix=lib2 --rejoin -b lib2-split >/dev/null 2>&1
-  git push "$lib2_bare" lib2-split:main >/dev/null 2>&1
+  # Use create command to export lib2 (split + push + config)
+  run platypus subtree create lib2 "$lib2_bare" -b main
+  [ "$status" -eq 0 ]
   
   # Create working directories for the upstream repos
   local lib1_work="$TEST_TMP/lib1-work"
@@ -518,31 +518,6 @@ setup_platypus_svn_repo() {
   
   git clone "$lib2_bare" "$lib2_work" >/dev/null 2>&1
   (cd "$lib2_work" && git config user.name "$GIT_AUTHOR_NAME" && git config user.email "$GIT_AUTHOR_EMAIL") >/dev/null 2>&1
-  
-  #---------------------------------------------------------------------------
-  # Initialize subtrees in monorepo (pointing to the upstream repos)
-  # The --rejoin from split already established the merge base
-  #---------------------------------------------------------------------------
-  
-  # Initialize lib1 as a subtree and record the split sha
-  run platypus subtree init lib1 --remote "$lib1_bare" -b main
-  [ "$status" -eq 0 ]
-  # Record the split sha for proper incremental pulls
-  local lib1_split_sha
-  lib1_split_sha=$(git rev-parse lib1-split)
-  git config --file .gitsubtrees subtree.lib1.splitSha "$lib1_split_sha"
-  git branch -D lib1-split >/dev/null 2>&1
-  
-  # Initialize lib2 as a subtree and record the split sha
-  run platypus subtree init lib2 --remote "$lib2_bare" -b main
-  [ "$status" -eq 0 ]
-  local lib2_split_sha
-  lib2_split_sha=$(git rev-parse lib2-split)
-  git config --file .gitsubtrees subtree.lib2.splitSha "$lib2_split_sha"
-  git branch -D lib2-split >/dev/null 2>&1
-  
-  git add .gitsubtrees
-  git commit --amend --no-edit >/dev/null 2>&1
   
   # Push to origin and update marker to current state
   # This ensures we only push NEW changes to SVN (not the rejoin setup)
