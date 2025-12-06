@@ -24,6 +24,73 @@ showing repository states before and after each operation.
 
 ## Subtree Commands
 
+<!-- The following help text block is automatically generated from `platypus subtree --help`. Do not edit manually. -->
+
+```text
+<!-- BEGIN platypus-subtree-help -->
+Usage: platypus subtree <command> [options]
+
+Manage Git subtrees in the monorepo. Configuration is stored in .gitsubtrees
+at the repository root (similar to .gitmodules).
+
+Commands:
+  create <prefix> <upstream> [-b <branch>]
+                    Export existing directory to a new upstream repo
+  init <prefix> [-r <remote>] [-b <branch>]
+                    Link existing directory to an existing upstream
+  add <prefix> <repo> [<ref>]
+                    Add a new subtree from a remote repository
+  pull <prefix>     Pull upstream changes into subtree
+  push <prefix>     Push subtree changes to upstream
+  sync <prefix>     Bidirectional sync (pull then push)
+  status [<prefix>] Show sync status of subtree(s)
+  list              List all configured subtrees
+
+Options:
+  -h, --help        Show this help message
+  -v, --verbose     Show verbose output
+  -q, --quiet       Suppress normal output
+  -n, --dry-run     Show what would be done without doing it
+  -d, --debug       Show debug output
+  --version         Show version information
+
+For create/init commands:
+  -b, --branch      Remote branch (default: main)
+  -r, --remote      Remote repository URL (init only)
+
+Examples:
+  # Export existing lib/foo to a new upstream repo
+  platypus subtree create lib/foo git@github.com:owner/foo.git
+
+  # Link existing lib/foo to an existing upstream
+  platypus subtree init lib/foo -r git@github.com:owner/foo.git
+
+  # Add a new subtree from a remote
+  platypus subtree add lib/bar git@github.com:owner/bar.git main
+
+  # Pull upstream changes
+  platypus subtree pull lib/foo
+
+  # Push local changes to upstream
+  platypus subtree push lib/foo
+
+  # Bidirectional sync (pull then push)
+  platypus subtree sync lib/foo
+
+  # Show status of all subtrees
+  platypus subtree status
+
+Configuration file (.gitsubtrees):
+  [subtree "lib/foo"]
+      remote = git@github.com:owner/foo.git
+      branch = main
+      upstream = <last synced upstream commit>
+      preMergeParent = <monorepo commit before last sync>
+      splitSha = <last split SHA for incremental push>
+
+<!-- END platypus-subtree-help -->
+```
+
 Subtree commands manage Git subtrees - embedding external repositories as
 subdirectories in your monorepo. Configuration is stored in `.gitsubtrees`.
 
@@ -416,6 +483,73 @@ After sync, both repos have all changes:
 ---
 
 ## SVN Commands
+
+<!-- The following help text block is automatically generated from `platypus svn --help`. Do not edit manually. -->
+
+```text
+<!-- BEGIN platypus-svn-help -->
+Usage: platypus subtree <command> [options]
+
+Manage Git subtrees in the monorepo. Configuration is stored in .gitsubtrees
+at the repository root (similar to .gitmodules).
+
+Commands:
+  create <prefix> <upstream> [-b <branch>]
+                    Export existing directory to a new upstream repo
+  init <prefix> [-r <remote>] [-b <branch>]
+                    Link existing directory to an existing upstream
+  add <prefix> <repo> [<ref>]
+                    Add a new subtree from a remote repository
+  pull <prefix>     Pull upstream changes into subtree
+  push <prefix>     Push subtree changes to upstream
+  sync <prefix>     Bidirectional sync (pull then push)
+  status [<prefix>] Show sync status of subtree(s)
+  list              List all configured subtrees
+
+Options:
+  -h, --help        Show this help message
+  -v, --verbose     Show verbose output
+  -q, --quiet       Suppress normal output
+  -n, --dry-run     Show what would be done without doing it
+  -d, --debug       Show debug output
+  --version         Show version information
+
+For create/init commands:
+  -b, --branch      Remote branch (default: main)
+  -r, --remote      Remote repository URL (init only)
+
+Examples:
+  # Export existing lib/foo to a new upstream repo
+  platypus subtree create lib/foo git@github.com:owner/foo.git
+
+  # Link existing lib/foo to an existing upstream
+  platypus subtree init lib/foo -r git@github.com:owner/foo.git
+
+  # Add a new subtree from a remote
+  platypus subtree add lib/bar git@github.com:owner/bar.git main
+
+  # Pull upstream changes
+  platypus subtree pull lib/foo
+
+  # Push local changes to upstream
+  platypus subtree push lib/foo
+
+  # Bidirectional sync (pull then push)
+  platypus subtree sync lib/foo
+
+  # Show status of all subtrees
+  platypus subtree status
+
+Configuration file (.gitsubtrees):
+  [subtree "lib/foo"]
+      remote = git@github.com:owner/foo.git
+      branch = main
+      upstream = <last synced upstream commit>
+      preMergeParent = <monorepo commit before last sync>
+      splitSha = <last split SHA for incremental push>
+
+<!-- END platypus-svn-help -->
+```
 
 SVN commands sync the Git monorepo with an SVN repository using `git-svn`.
 Changes flow: Git → SVN, and SVN metadata flows back into Git.

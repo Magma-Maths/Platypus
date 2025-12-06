@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Resolve repo root as the parent of this scripts/ directory
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+CMD_MD="$ROOT/COMMANDS.md"
+
+# You can override PLATYPUS_CMD in the environment if needed
+PLATYPUS_CMD="${PLATYPUS_CMD:-$ROOT/lib/platypus}"
+
+# Helper: replace the content between BEGIN/END markers in $CMD_MD
+# Arguments:
+#   1: marker base name, e.g. "platypus-svn-help"
+#   2..: command to generate the replacement text
+update_block() {
+  local marker="$1"
+  shift
+  local tmp="$CMD_MD.tmp"
+
+  # Run the command and capture help text
+  local help_text
+  help_text="$("$@" 2>&1)"
+
+  # Work on a temp copy so we can do multiple blocks in one run
+  cp "$CMD_MD" "$tmp"
+
+  # Use Perl to replace the text between markers.
+  # We feed the help text via STDIN to avoid escaping headaches.
+  perl -0pe '
+    BEGIN {
+      $marker = shift @ARGV;
+      $help = do { local $/; <STDIN> };
+      chomp $help;  # drop trailing newlines
+    }
+
+    my $begin = "<!-- BEGIN $marker -->";
+    my $end   = "<!-- END $marker -->";
+
+    my $idx_begin = index($_, $begin);
+    die "BEGIN marker $begin not found\n" if $idx_begin < 0;
+    my $idx_end = index($_, $end, $idx_begin);
+    die "END marker $end not found\n" if $idx_end < 0;
+
+    my $before = substr($_, 0, $idx_begin + length($begin));
+    my $after  = substr($_, $idx_end);
+
+    $_ = $before . "\n" . $help . "\n" . $after;
+  ' "$marker" "$tmp" <<< "$help_text" > "$CMD_MD"
+
+  rm -f "$tmp"
+}
+
+# Update each block you care about:
+
+update_block "platypus-svn-help"     "$PLATYPUS_CMD" svn --help
+update_block "platypus-subtree-help" "$PLATYPUS_CMD" subtree --help
+
+# Uncomment if you also added a top-level platypus-help block:
+# update_block "platypus-help"         "$PLATYPUS_CMD" --help
+

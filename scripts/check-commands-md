@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# Run the updater (this may modify COMMANDS.md)
+"$ROOT/scripts/update-commands-md"
+
+# Check whether COMMANDS.md is now different from what is staged/tracked
+if ! git diff --quiet -- COMMANDS.md; then
+  echo "COMMANDS.md is out of date with respect to platypus --help output." >&2
+  echo "Run: ./scripts/update-commands-md and commit the updated COMMANDS.md." >&2
+  exit 1
+fi
+

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Pre-commit hook that runs all checks
+#
+# Installation:
+#   cp scripts/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+
+
+set -e
+
+# Find repo root by looking for .git directory
+# Works whether script is in scripts/ or .git/hooks/
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Run all checks
+"$ROOT/scripts/check-test-credentials"
+"$ROOT/scripts/check-commands-md"
+
+exit 0
+
