@@ -3,9 +3,11 @@
 # run-tests.sh - Run tests and shellcheck locally (like CI)
 #
 # Usage:
-#   ./run-tests.sh              # Run everything (shellcheck + tests)
+#   ./run-tests.sh              # Run everything (shellcheck + tests, excluding docker)
 #   ./run-tests.sh --shellcheck # Run only shellcheck
-#   ./run-tests.sh --tests      # Run only bats tests
+#   ./run-tests.sh --tests      # Run only bats tests (excluding docker)
+#   ./run-tests.sh --docker     # Run only docker-tagged tests
+#   ./run-tests.sh --all        # Run all tests including docker
 #   ./run-tests.sh --help       # Show help
 
 set -e
@@ -19,6 +21,7 @@ NC='\033[0m' # No Color
 # Flags
 RUN_SHELLCHECK=true
 RUN_TESTS=true
+DOCKER_MODE="exclude"  # "exclude", "only", or "all"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -31,6 +34,19 @@ while [[ $# -gt 0 ]]; do
       RUN_SHELLCHECK=false
       shift
       ;;
+    --docker)
+      RUN_SHELLCHECK=false
+      DOCKER_MODE="only"
+      shift
+      ;;
+    --no-docker)
+      DOCKER_MODE="exclude"
+      shift
+      ;;
+    --all)
+      DOCKER_MODE="all"
+      shift
+      ;;
     --help|-h)
       cat <<EOF
 Usage: $0 [options]
@@ -39,10 +55,21 @@ Run tests and shellcheck locally (matching CI behavior).
 
 Options:
   --shellcheck    Run only shellcheck
-  --tests         Run only bats tests
+  --tests         Run only bats tests (excluding docker-tagged tests)
+  --docker        Run only docker-tagged tests (requires Docker)
+  --no-docker     Exclude docker-tagged tests (default)
+  --all           Run all tests including docker-tagged tests
   --help, -h      Show this help message
 
-By default, runs both shellcheck and tests.
+By default, runs shellcheck and non-docker tests.
+
+Docker tests are tagged with '# bats test_tags=docker' and require
+a running Docker daemon with the SVN server container.
+
+To run docker tests:
+  1. Start SVN server: docker compose -f test/docker/svn-server/docker-compose.yml up -d
+  2. Run tests: ./run-tests.sh --docker
+  3. Stop server: docker compose -f test/docker/svn-server/docker-compose.yml down -v
 EOF
       exit 0
       ;;
@@ -161,7 +188,30 @@ check_git_config() {
 
 # Run bats tests
 run_tests() {
-  section "Running bats tests"
+  local filter_args=()
+  local test_desc=""
+  
+  case "$DOCKER_MODE" in
+    exclude)
+      filter_args=(--filter-tags '!docker')
+      test_desc="(excluding docker tests)"
+      ;;
+    only)
+      filter_args=(--filter-tags 'docker')
+      test_desc="(docker tests only)"
+      # Check Docker availability
+      if ! command -v docker &>/dev/null || ! docker info &>/dev/null 2>&1; then
+        error "Docker is not available but --docker was specified"
+        echo "  Make sure Docker is installed and running"
+        return 1
+      fi
+      ;;
+    all)
+      test_desc="(all tests)"
+      ;;
+  esac
+  
+  section "Running bats tests $test_desc"
 
   # .rc is required
   if [[ ! -f .rc ]]; then
@@ -176,7 +226,7 @@ run_tests() {
   # Check git config (warn but don't modify)
   check_git_config
 
-  if bats test/; then
+  if bats "${filter_args[@]}" test/; then
     success "All tests passed"
     return 0
   else

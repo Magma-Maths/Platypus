@@ -581,3 +581,131 @@ setup_with_svn() {
   cd "$TEST_TMP"
   source "$PLATYPUS_ROOT/lib/platypus-svn"
 }
+
+#------------------------------------------------------------------------------
+# Docker SVN server helpers (for integration tests)
+#------------------------------------------------------------------------------
+
+# Docker compose file location
+DOCKER_SVN_COMPOSE="$TEST_DIR/docker/svn-server/docker-compose.yml"
+
+# Check if Docker is available and running
+# Usage: docker_available
+docker_available() {
+  command -v docker &>/dev/null && docker info &>/dev/null 2>&1
+}
+
+# Skip test if Docker is not available
+# Usage: skip_if_no_docker
+skip_if_no_docker() {
+  if ! docker_available; then
+    skip "Docker not available"
+  fi
+}
+
+# Start the SVN server container
+# Usage: start_svn_server
+start_svn_server() {
+  if ! docker_available; then
+    echo "Docker not available" >&2
+    return 1
+  fi
+  
+  # Start the container
+  docker compose -f "$DOCKER_SVN_COMPOSE" up -d --wait
+  
+  # Wait for SVN to be ready (healthcheck should handle this, but double-check)
+  local retries=30
+  while [[ $retries -gt 0 ]]; do
+    if docker exec platypus-svn-server svnadmin info /home/svn/repos &>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+    ((retries--))
+  done
+  
+  echo "SVN server did not become ready" >&2
+  return 1
+}
+
+# Stop the SVN server container and clean up
+# Usage: stop_svn_server
+stop_svn_server() {
+  if docker_available; then
+    docker compose -f "$DOCKER_SVN_COMPOSE" down -v 2>/dev/null || true
+  fi
+}
+
+# Create a new SVN repository in the container
+# Usage: create_svn_repo <name>
+# Returns: svn://localhost:3690/<name>
+create_svn_repo() {
+  local name=$1
+  
+  # Create the repository
+  docker exec platypus-svn-server svnadmin create "/home/svn/$name"
+  
+  # Make it accessible (update authz if needed)
+  docker exec platypus-svn-server chmod -R 777 "/home/svn/$name"
+  
+  echo "svn://localhost:3690/$name"
+}
+
+# Add a file to SVN repository (commits directly)
+# Usage: svn_add_file <repo_url> <filename> <content> [message]
+svn_add_file() {
+  local repo_url=$1
+  local filename=$2
+  local content=$3
+  local message=${4:-"Add $filename"}
+  
+  local checkout_dir="$TEST_TMP/svn-checkout-$$"
+  mkdir -p "$checkout_dir"
+  
+  (
+    cd "$checkout_dir"
+    svn checkout "$repo_url" . --quiet
+    echo "$content" > "$filename"
+    svn add "$filename" 2>/dev/null || true
+    svn commit -m "$message" --quiet
+  )
+  
+  rm -rf "$checkout_dir"
+}
+
+# Setup a git-svn clone of an SVN repository
+# Usage: setup_git_svn_repo <svn_url> [dir_name]
+# Returns: path to the git-svn repo
+setup_git_svn_repo() {
+  local svn_url=$1
+  local dir_name=${2:-git-svn-repo}
+  local dir="$TEST_TMP/$dir_name"
+  
+  mkdir -p "$dir"
+  (
+    cd "$dir"
+    git svn init "$svn_url" --stdlayout 2>/dev/null || git svn init "$svn_url"
+    git svn fetch
+    git config user.name "$GIT_AUTHOR_NAME"
+    git config user.email "$GIT_AUTHOR_EMAIL"
+  ) >/dev/null 2>&1
+  
+  echo "$dir"
+}
+
+# Setup for Docker SVN tests
+# Usage: setup_docker_svn
+# Note: Call this in setup() for tests that need Docker SVN
+setup_docker_svn() {
+  skip_if_no_docker
+  
+  # Standard setup
+  rm -rf "$TEST_TMP"
+  mkdir -p "$TEST_TMP"
+  cd "$TEST_TMP"
+  
+  # Ensure SVN server is running
+  if ! docker ps --format '{{.Names}}' | grep -q platypus-svn-server; then
+    start_svn_server || skip "Failed to start SVN server"
+  fi
+}

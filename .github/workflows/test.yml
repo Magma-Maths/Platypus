@@ -34,8 +34,8 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global init.defaultBranch main
 
-      - name: Run tests
-        run: ./test/run-tests.sh --tests
+      - name: Run tests (excluding Docker tests)
+        run: ./test/run-tests.sh --tests --no-docker
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -48,4 +48,37 @@ jobs:
 
       - name: Run shellcheck
         run: ./test/run-tests.sh --shellcheck
+
+  test-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install bats-core
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats subversion
+
+      - name: Set up Git identity
+        run: |
+          git config --global user.name "Test User"
+          git config --global user.email "test@example.com"
+          git config --global init.defaultBranch main
+
+      - name: Start SVN server
+        run: |
+          docker compose -f test/docker/svn-server/docker-compose.yml up -d --wait
+          # Wait for SVN to be ready
+          for i in {1..30}; do
+            docker exec platypus-svn-server svnadmin info /home/svn/repos && break
+            sleep 1
+          done
+
+      - name: Run Docker tests
+        run: ./test/run-tests.sh --docker
+
+      - name: Stop SVN server
+        if: always()
+        run: docker compose -f test/docker/svn-server/docker-compose.yml down -v
 

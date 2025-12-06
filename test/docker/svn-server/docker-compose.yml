@@ -1,0 +1,31 @@
+# Docker Compose configuration for SVN server used in integration tests
+#
+# Usage:
+#   docker compose up -d      # Start SVN server
+#   docker compose down -v    # Stop and remove data
+#
+# The SVN server will be accessible at:
+#   svn://localhost:3690/     # SVN protocol
+#   http://localhost:8080/svn # HTTP protocol
+
+services:
+  svn:
+    image: elleflorio/svn-server
+    container_name: platypus-svn-server
+    ports:
+      - "3690:3690"      # svn:// protocol
+      - "8080:80"        # HTTP access
+    volumes:
+      - svn-data:/home/svn
+    environment:
+      - SVN_REPONAME=repos
+    healthcheck:
+      test: ["CMD", "svnadmin", "info", "/home/svn/repos"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  svn-data:
+
