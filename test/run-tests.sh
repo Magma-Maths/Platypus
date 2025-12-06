@@ -132,8 +132,8 @@ check_deps() {
 
   if $RUN_TESTS && ! git svn --version &> /dev/null; then
     error "git-svn is not installed (required for svn tests)"
-    echo "  Install with: sudo apt-get install git-svn      (Linux)"
-    echo "                brew install git                  (macOS - includes git-svn)"
+    echo "  Install with: sudo apt-get install libsvn-perl  (Linux)"
+    echo "                brew install subversion           (macOS)"
     missing=1
   fi
 

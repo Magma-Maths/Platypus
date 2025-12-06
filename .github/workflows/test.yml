@@ -22,7 +22,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats git-svn
+          # libsvn-perl provides Perl bindings for git-svn (the PPA git already includes git-svn)
+          sudo apt-get install -y bats libsvn-perl
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -58,7 +59,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats git-svn subversion
+          # libsvn-perl provides Perl bindings for git-svn; subversion for svn client
+          sudo apt-get install -y bats libsvn-perl subversion
 
       - name: Set up Git identity
         run: |
