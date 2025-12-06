@@ -10,6 +10,37 @@
 load test_helper
 
 #------------------------------------------------------------------------------
+# Helper: Create a mock git-svn repo (same as in svn-push.bats)
+#------------------------------------------------------------------------------
+create_mock_svn_repo() {
+  local dir
+  dir=$(create_repo "repo")
+  
+  (
+    cd "$dir"
+    
+    # Initial commit
+    echo "initial" > file.txt
+    git add file.txt
+    git commit -m "Initial commit"
+    
+    # Create a fake SVN remote ref (simulates git-svn tracking)
+    git update-ref refs/remotes/git-svn HEAD
+    
+    # Create svn branch pointing to same place
+    git branch svn HEAD
+    
+    # Create origin remote
+    git remote add origin "file://$dir"
+    
+    # Create marker branch
+    git update-ref refs/remotes/origin/svn-marker HEAD
+  ) >/dev/null
+  
+  echo "$dir"
+}
+
+#------------------------------------------------------------------------------
 # Not in a git repository
 #------------------------------------------------------------------------------
 
@@ -27,11 +58,11 @@ load test_helper
 
 @test "svn push fails with unstaged changes" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Create unstaged change to tracked file
-  echo "modified" >> README.md
+  echo "modified" >> file.txt
   
   run platypus svn push
   [ "$status" -ne 0 ]
@@ -40,7 +71,7 @@ load test_helper
 
 @test "svn push fails with staged changes" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Create staged change
@@ -58,7 +89,7 @@ load test_helper
 
 @test "svn push fails when on svn-export branch" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Create and switch to svn-export branch
@@ -71,7 +102,7 @@ load test_helper
 
 @test "svn push fails when HEAD is detached" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Create detached HEAD
@@ -88,7 +119,7 @@ load test_helper
 
 @test "svn push fails when not at repo root" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Create subdirectory and cd into it
@@ -128,11 +159,10 @@ load test_helper
 
 @test "svn push --dry-run is accepted" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  # dry-run should be accepted but will fail later due to missing SVN setup
-  # We just verify the flag is recognized
+  # dry-run should be accepted and run without error
   run platypus svn push --dry-run
   # Should not fail with "unknown option" error
   [[ "$output" != *"unknown option"* ]]
@@ -141,7 +171,7 @@ load test_helper
 
 @test "svn push --verbose is accepted" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   run platypus svn push --verbose
@@ -151,7 +181,7 @@ load test_helper
 
 @test "svn push --quiet is accepted" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   run platypus svn push --quiet
@@ -165,7 +195,7 @@ load test_helper
 
 @test "svn --continue fails without saved state" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   run platypus svn --continue
@@ -175,7 +205,7 @@ load test_helper
 
 @test "svn --abort fails without saved state" {
   local repo
-  repo=$(create_monorepo)
+  repo=$(create_mock_svn_repo)
   cd "$repo"
   
   run platypus svn --abort
