@@ -21,8 +21,10 @@ jobs:
       - name: Install bats-core (Ubuntu)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bats
+          # Install latest bats from source to avoid bats 1.10.0 bugs
+          git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats
+          sudo /tmp/bats/install.sh /usr/local
+          bats --version
 
       - name: Install bats-core (macOS)
         if: runner.os == 'macOS'
@@ -34,26 +36,6 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global init.defaultBranch main
 
-      - name: Debug - Run tests 6 and 7 individually
-        run: |
-          source .rc
-          echo "=== Bats version ==="
-          bats --version
-          echo ""
-          echo "=== Running test 6 by name ==="
-          bats test/svn-pull.bats --filter "dirty working tree" || echo "Test 6 failed with exit code $?"
-          echo ""
-          echo "=== Running test 7 by name ==="
-          bats test/svn-pull.bats --filter "unstaged changes" || echo "Test 7 failed with exit code $?"
-          echo ""
-          echo "=== Manually testing create_mock_svn_repo ==="
-          cd /tmp
-          source "$PLATYPUS_ROOT/test/test_helper.bash"
-          source "$PLATYPUS_ROOT/test/svn-pull.bats" 2>/dev/null || true
-          echo "Creating mock repo..."
-          repo=$(create_mock_svn_repo) && echo "Created: $repo" || echo "FAILED to create mock repo"
-          ls -la "$repo" 2>/dev/null || echo "Directory doesn't exist"
-      
       - name: Run tests (excluding Docker tests)
         run: ./test/run-tests.sh --tests --no-docker
 
@@ -78,7 +60,11 @@ jobs:
       - name: Install bats-core and subversion
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats subversion
+          sudo apt-get install -y subversion
+          # Install latest bats from source
+          git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats
+          sudo /tmp/bats/install.sh /usr/local
+          bats --version
 
       - name: Set up Git identity
         run: |
