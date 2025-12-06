@@ -44,21 +44,11 @@ fi
 LIB_DIR="$PLATYPUS_ROOT/lib"
 
 #------------------------------------------------------------------------------
-# Utility functions:
+# Source shared utilities:
 #------------------------------------------------------------------------------
 
-say() {
-  echo "$@"
-}
-
-err() {
-  echo "$@" >&2
-}
-
-error() {
-  echo "ERROR: $*" >&2
-  exit 1
-}
+# shellcheck source=platypus-common.bash
+source "$LIB_DIR/platypus-common.bash"
 
 #------------------------------------------------------------------------------
 # Help:

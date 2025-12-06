@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034  # Variables used via sourced platypus-common.bash
+# shellcheck disable=SC2034,SC2154  # Variables used via sourced platypus-common.bash
 #
 # platypus-subtree.sh - Manage Git subtrees in the monorepo
 #
@@ -202,6 +202,25 @@ config:get-all() {
     sed "s/^subtree\\.${escaped_prefix}\\.//"
 }
 
+# Update multiple config values and amend the commit
+# Usage: config:update-and-amend <prefix> <key1>=<value1> [<key2>=<value2> ...]
+config:update-and-amend() {
+  local prefix=$1
+  shift
+  
+  # Update all key=value pairs
+  while [[ $# -gt 0 ]]; do
+    local key="${1%%=*}"
+    local value="${1#*=}"
+    config:set "$prefix" "$key" "$value"
+    shift
+  done
+  
+  # Stage and amend
+  RUN git add "$CONFIG_PATH"
+  RUN git commit --amend --no-edit
+}
+
 #------------------------------------------------------------------------------
 # Subtree helper functions:
 #------------------------------------------------------------------------------
@@ -300,6 +319,42 @@ subtree:normalize-prefix() {
   if [[ -z "$prefix" ]]; then
     error "Prefix cannot be empty"
   fi
+  
+  echo "$prefix"
+}
+
+# Validate subtree prefix and run specified checks
+# Usage: subtree:validate <prefix> <check1> [<check2> ...]
+# Checks: configured, exists, not-exists, clean
+# Returns: normalized prefix
+subtree:validate() {
+  local prefix=$1
+  shift
+  local -a checks=("$@")
+  
+  # Always normalize first
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Run requested checks
+  for check in "${checks[@]}"; do
+    case "$check" in
+      configured)
+        subtree:assert-configured "$prefix"
+        ;;
+      exists)
+        subtree:assert-directory-exists "$prefix"
+        ;;
+      not-exists)
+        subtree:assert-directory-not-exists "$prefix"
+        ;;
+      clean)
+        subtree:assert-clean-worktree
+        ;;
+      *)
+        error "Unknown validation check: $check"
+        ;;
+    esac
+  done
   
   echo "$prefix"
 }
@@ -418,10 +473,7 @@ command:init() {
   [[ -n "$prefix" ]] || error "Usage: platypus subtree init <prefix> [-r <remote>] [-b <branch>]"
   
   # Normalize and validate prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check directory exists
-  subtree:assert-directory-exists "$prefix"
+  prefix=$(subtree:validate "$prefix" exists clean)
   
   # Check not already configured
   if config:exists "$prefix"; then
@@ -434,9 +486,6 @@ command:init() {
     err "Example: platypus subtree init $prefix -r git@github.com:owner/repo.git"
     error "Remote is required for init."
   fi
-  
-  # Ensure clean worktree
-  subtree:assert-clean-worktree
   
   say "Initializing subtree '$prefix' from $remote..."
   o "Branch: $branch"
@@ -471,12 +520,7 @@ command:init() {
     -m "Initialize subtree '$prefix' from $remote"
   
   # Record sync state
-  config:set "$prefix" upstream "$upstream_sha"
-  config:set "$prefix" preMergeParent "$preMergeParent"
-  
-  # Stage and amend to include config in the merge commit
-  RUN git add "$CONFIG_PATH"
-  RUN git commit --amend --no-edit
+  config:update-and-amend "$prefix" "upstream=$upstream_sha" "preMergeParent=$preMergeParent"
   
   say "Subtree '$prefix' initialized from $remote ($branch)."
   say ""
@@ -519,19 +563,13 @@ command:add() {
   [[ -n "$prefix" ]] || error "Usage: platypus subtree add <prefix> <repo> [<ref>]"
   [[ -n "$repo" ]] || error "Usage: platypus subtree add <prefix> <repo> [<ref>]"
   
-  # Normalize prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check directory doesn't exist
-  subtree:assert-directory-not-exists "$prefix"
+  # Normalize and validate prefix
+  prefix=$(subtree:validate "$prefix" not-exists clean)
   
   # Check not already configured
   if config:exists "$prefix"; then
     error "Subtree '$prefix' is already configured in $CONFIG_FILE."
   fi
-  
-  # Ensure clean worktree
-  subtree:assert-clean-worktree
   
   say "Adding subtree '$prefix' from $repo ($ref)..."
   
@@ -556,14 +594,12 @@ command:add() {
   local upstream
   upstream=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "")
   
+  # Record sync state
+  local config_args=("preMergeParent=$preMergeParent")
   if [[ -n "$upstream" ]]; then
-    config:set "$prefix" upstream "$upstream"
+    config_args+=("upstream=$upstream")
   fi
-  config:set "$prefix" preMergeParent "$preMergeParent"
-  
-  # Stage and amend to include config
-  RUN git add "$CONFIG_PATH"
-  RUN git commit --amend --no-edit
+  config:update-and-amend "$prefix" "${config_args[@]}"
   
   say "Subtree '$prefix' added from $repo ($ref)."
 }
@@ -601,19 +637,13 @@ command:create() {
   [[ -n "$prefix" ]] || error "Usage: platypus subtree create <prefix> <upstream> [-b <branch>]"
   [[ -n "$upstream" ]] || error "Usage: platypus subtree create <prefix> <upstream> [-b <branch>]"
   
-  # Normalize prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check directory exists and is not empty
-  subtree:assert-directory-exists "$prefix"
+  # Normalize and validate prefix
+  prefix=$(subtree:validate "$prefix" exists clean)
   
   # Check not already configured
   if config:exists "$prefix"; then
     error "Subtree '$prefix' is already configured in $CONFIG_FILE."
   fi
-  
-  # Ensure clean worktree
-  subtree:assert-clean-worktree
   
   # Test upstream is accessible
   o "Testing upstream access..."
@@ -652,15 +682,12 @@ command:create() {
   fi
   
   # Create config
-  config:set "$prefix" remote "$upstream"
-  config:set "$prefix" branch "$branch"
-  config:set "$prefix" splitSha "$split_sha"
-  config:set "$prefix" upstream "$split_sha"
-  config:set "$prefix" preMergeParent "$preMergeParent"
-  
-  # Stage and amend to include config in the rejoin commit
-  RUN git add "$CONFIG_PATH"
-  RUN git commit --amend --no-edit
+  config:update-and-amend "$prefix" \
+    "remote=$upstream" \
+    "branch=$branch" \
+    "splitSha=$split_sha" \
+    "upstream=$split_sha" \
+    "preMergeParent=$preMergeParent"
   
   # Cleanup temp branch
   git branch -D "$temp_branch" 2>/dev/null || true
@@ -702,14 +729,8 @@ command:pull() {
   
   [[ -n "$prefix" ]] || error "Usage: platypus subtree pull <prefix>"
   
-  # Normalize prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check configured
-  subtree:assert-configured "$prefix"
-  
-  # Ensure clean worktree
-  subtree:assert-clean-worktree
+  # Normalize and validate prefix
+  prefix=$(subtree:validate "$prefix" configured clean)
   
   # Get config
   local remote branch
@@ -740,12 +761,7 @@ command:pull() {
   local upstream
   upstream=$(git rev-parse FETCH_HEAD)
   
-  config:set "$prefix" upstream "$upstream"
-  config:set "$prefix" preMergeParent "$preMergeParent"
-  
-  # Stage config and amend
-  RUN git add "$CONFIG_PATH"
-  RUN git commit --amend --no-edit
+  config:update-and-amend "$prefix" "upstream=$upstream" "preMergeParent=$preMergeParent"
   
   say "Subtree '$prefix' pulled from $remote ($branch)."
 }
@@ -774,14 +790,8 @@ command:push() {
   
   [[ -n "$prefix" ]] || error "Usage: platypus subtree push <prefix>"
   
-  # Normalize prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check configured
-  subtree:assert-configured "$prefix"
-  
-  # Ensure clean worktree
-  subtree:assert-clean-worktree
+  # Normalize and validate prefix
+  prefix=$(subtree:validate "$prefix" configured clean)
   
   # Get config
   local remote branch splitSha
@@ -820,15 +830,12 @@ command:push() {
   # Record the split SHA for status/reference (optional, --rejoin handles optimization)
   local new_splitSha
   new_splitSha=$(git rev-parse "$temp_branch")
-  config:set "$prefix" splitSha "$new_splitSha"
-  config:set "$prefix" preMergeParent "$preMergeParent"
   
   # Cleanup temp branch
   RUN git branch -D "$temp_branch"
   
-  # Stage config update (--rejoin already created a merge commit, so we amend it)
-  RUN git add "$CONFIG_PATH"
-  RUN git commit --amend --no-edit
+  # Update config (--rejoin already created a merge commit, so we amend it)
+  config:update-and-amend "$prefix" "splitSha=$new_splitSha" "preMergeParent=$preMergeParent"
   
   say "Subtree '$prefix' pushed to $remote ($branch)."
 }
@@ -862,11 +869,8 @@ command:sync() {
   
   [[ -n "$prefix" ]] || error "Usage: platypus subtree sync <prefix>"
   
-  # Normalize prefix
-  prefix=$(subtree:normalize-prefix "$prefix")
-  
-  # Check configured
-  subtree:assert-configured "$prefix"
+  # Normalize and validate prefix
+  prefix=$(subtree:validate "$prefix" configured)
   
   # Get config for display
   local remote branch
@@ -986,108 +990,29 @@ command:list() {
 }
 
 #------------------------------------------------------------------------------
-# Option parsing:
-#------------------------------------------------------------------------------
-
-get-options() {
-  local args=()
-  
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -h|--help)
-        usage
-        ;;
-      -v|--verbose)
-        verbose_wanted=true
-        shift
-        ;;
-      -q|--quiet)
-        quiet_wanted=true
-        shift
-        ;;
-      -n|--dry-run)
-        dry_run=true
-        shift
-        ;;
-      -d|--debug)
-        debug_wanted=true
-        verbose_wanted=true
-        shift
-        ;;
-      --version)
-        version
-        ;;
-      --)
-        shift
-        args+=("$@")
-        break
-        ;;
-      -*)
-        # Pass through to command - might be command-specific option
-        args+=("$1")
-        shift
-        ;;
-      *)
-        args+=("$1")
-        shift
-        ;;
-    esac
-  done
-  
-  # Return remaining args
-  printf '%s\n' "${args[@]}"
-}
-
-#------------------------------------------------------------------------------
 # Main:
 #------------------------------------------------------------------------------
 
 main() {
-  # Parse global options first
-  local args=()
+  # Parse global options first using common parser
+  common:parse-options "$@"
+  eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
+  
+  # Handle --help and --version before command dispatch
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)
         usage
         ;;
-      -v|--verbose)
-        verbose_wanted=true
-        shift
-        ;;
-      -q|--quiet)
-        quiet_wanted=true
-        shift
-        ;;
-      -n|--dry-run)
-        dry_run=true
-        shift
-        ;;
-      -d|--debug)
-        debug_wanted=true
-        verbose_wanted=true
-        shift
-        ;;
       --version)
         version
         ;;
-      --)
-        shift
-        args+=("$@")
+      *)
         break
         ;;
-      -*)
-        # Pass to command
-        args+=("$1")
-        shift
-        ;;
-      *)
-        args+=("$1")
-        shift
-        ;;
     esac
+    shift
   done
-  
-  set -- "${args[@]}"
   
   if [[ $# -eq 0 ]]; then
     usage
