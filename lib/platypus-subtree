@@ -30,7 +30,7 @@
 #       remote = git@github.com:owner/foo.git
 #       branch = main
 #       upstream = <last synced upstream commit>
-#       parent = <monorepo commit at last sync>
+#       preMergeParent = <monorepo commit BEFORE last sync>
 #       splitSha = <last split result for incremental push>
 #
 
@@ -493,10 +493,10 @@ command:init() {
   config:set "$prefix" remote "$remote"
   config:set "$prefix" branch "$branch"
   
-  # Record current state
-  local parent
-  parent=$(git rev-parse HEAD)
-  config:set "$prefix" parent "$parent"
+  # Record current state (no merge in init, so this is just for reference)
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  config:set "$prefix" preMergeParent "$preMergeParent"
   
   # Stage the config file
   RUN git add "$CONFIG_PATH"
@@ -564,6 +564,10 @@ command:add() {
     return 0
   fi
   
+  # Capture pre-merge parent BEFORE the subtree add (stable reference)
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  
   # Use git subtree add
   RUN git subtree add --prefix="$prefix" $squash_opt "$repo" "$ref"
   
@@ -572,14 +576,13 @@ command:add() {
   config:set "$prefix" branch "$ref"
   
   # Record sync state
-  local upstream parent
+  local upstream
   upstream=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "")
-  parent=$(git rev-parse HEAD)
   
   if [[ -n "$upstream" ]]; then
     config:set "$prefix" upstream "$upstream"
   fi
-  config:set "$prefix" parent "$parent"
+  config:set "$prefix" preMergeParent "$preMergeParent"
   
   # Stage and amend to include config
   RUN git add "$CONFIG_PATH"
@@ -639,6 +642,10 @@ command:pull() {
     return 0
   fi
   
+  # Capture pre-merge parent BEFORE the merge (stable reference)
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  
   # Fetch
   o "Fetching $remote $branch..."
   RUN git fetch "$remote" "$branch"
@@ -648,12 +655,11 @@ command:pull() {
   RUN git subtree merge --prefix="$prefix" $squash_opt FETCH_HEAD
   
   # Update config
-  local upstream parent
+  local upstream
   upstream=$(git rev-parse FETCH_HEAD)
-  parent=$(git rev-parse HEAD)
   
   config:set "$prefix" upstream "$upstream"
-  config:set "$prefix" parent "$parent"
+  config:set "$prefix" preMergeParent "$preMergeParent"
   
   # Stage config and amend
   RUN git add "$CONFIG_PATH"
@@ -715,6 +721,11 @@ command:push() {
     return 0
   fi
   
+  # Capture pre-rejoin parent BEFORE the split (stable reference)
+  # The --rejoin flag creates a merge commit that we'll amend
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  
   # Split with --rejoin for incremental optimization
   o "Splitting subtree..."
   # shellcheck disable=SC2086
@@ -728,6 +739,7 @@ command:push() {
   local new_splitSha
   new_splitSha=$(git rev-parse "$temp_branch")
   config:set "$prefix" splitSha "$new_splitSha"
+  config:set "$prefix" preMergeParent "$preMergeParent"
   
   # Cleanup temp branch
   RUN git branch -D "$temp_branch"
@@ -841,19 +853,19 @@ command:status() {
 show-subtree-status() {
   local prefix=$1
   
-  local remote branch upstream parent splitSha
+  local remote branch upstream preMergeParent splitSha
   remote=$(config:get "$prefix" remote 2>/dev/null || echo "(not set)")
   branch=$(config:get "$prefix" branch 2>/dev/null || echo "(not set)")
   upstream=$(config:get "$prefix" upstream 2>/dev/null || echo "(not set)")
-  parent=$(config:get "$prefix" parent 2>/dev/null || echo "(not set)")
+  preMergeParent=$(config:get "$prefix" preMergeParent 2>/dev/null || echo "(not set)")
   splitSha=$(config:get "$prefix" splitSha 2>/dev/null || echo "(not set)")
   
   say "Subtree: $prefix"
-  say "  Remote:   $remote"
-  say "  Branch:   $branch"
-  say "  Upstream: ${upstream:0:12}..."
-  say "  Parent:   ${parent:0:12}..."
-  say "  SplitSHA: ${splitSha:0:12}..."
+  say "  Remote:          $remote"
+  say "  Branch:          $branch"
+  say "  Upstream:        ${upstream:0:12}..."
+  say "  PreMergeParent:  ${preMergeParent:0:12}..."
+  say "  SplitSHA:        ${splitSha:0:12}..."
   
   # Check if directory exists
   if [[ ! -d "$REPO_ROOT/$prefix" ]]; then
