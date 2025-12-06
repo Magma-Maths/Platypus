@@ -30,6 +30,13 @@
 set -e
 
 #------------------------------------------------------------------------------
+# Source shared utilities:
+#------------------------------------------------------------------------------
+
+# shellcheck source=platypus-common.bash
+source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
+
+#------------------------------------------------------------------------------
 # Configuration defaults:
 #------------------------------------------------------------------------------
 
@@ -68,13 +75,10 @@ EXIT_ERROR=1
 EXIT_CONFLICTS=2
 
 #------------------------------------------------------------------------------
-# Global state variables:
+# SVN-specific state variables:
+# (quiet_wanted, verbose_wanted, debug_wanted, dry_run are in platypus-common.bash)
 #------------------------------------------------------------------------------
 
-quiet_wanted=false      # Suppress normal output
-verbose_wanted=false    # Show verbose step output
-debug_wanted=false      # Show commands being run
-dry_run=false           # Don't actually push to SVN or update marker
 push_conflicts=false    # Continue through conflicts, push with markers
 continue_mode=false     # Resume from saved state
 abort_mode=false        # Abort and clean up
@@ -141,37 +145,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 #------------------------------------------------------------------------------
-# Utility functions:
+# Utility functions (say, o, err, error, RUN are in platypus-common.bash):
 #------------------------------------------------------------------------------
-
-# Print unless quiet mode:
-say() {
-  $quiet_wanted || echo "$@"
-}
-
-# Print verbose step output:
-o() {
-  if $verbose_wanted; then
-    echo "  * $*"
-  fi
-}
-
-# Print to stderr:
-err() {
-  echo "$@" >&2
-}
-
-# Print error and exit:
-error() {
-  printf "ERROR: %s\n" "$*" >&2
-  exit 1
-}
-
-# Smart command runner with debug output:
-RUN() {
-  $debug_wanted && echo ">>> $*" >&2
-  "$@"
-}
 
 # Print usage and exit:
 usage() {
@@ -365,34 +340,13 @@ assert-environment-ok() {
 }
 
 #------------------------------------------------------------------------------
-# Git wrapper functions:
+# Git wrapper functions (base functions in platypus-common.bash):
 #------------------------------------------------------------------------------
 
-# Check if a git revision exists:
-git:rev-exists() {
-  git rev-list "$1" -1 &> /dev/null
-}
-
-# Check if a branch exists:
-git:branch-exists() {
-  git:rev-exists "refs/heads/$1"
-}
-
-# Check if a remote ref exists:
-git:remote-ref-exists() {
-  local ref=$1
-  git show-ref --verify --quiet "$ref"
-}
-
-# Get short commit hash:
-git:short-hash() {
-  git rev-parse --short "$1"
-}
-
-# Assert working tree is clean (with specific messages):
+# Override assert-clean-worktree with SVN-specific error messages:
 git:assert-clean-worktree() {
   o "Assert working tree is clean"
-  RUN git update-index -q --refresh
+  git update-index -q --refresh
   
   # Check for unstaged changes
   if ! git diff-files --quiet; then
@@ -403,11 +357,6 @@ git:assert-clean-worktree() {
   if ! git diff-index --quiet --cached HEAD 2>/dev/null; then
     error "Index has staged (uncommitted) changes. Commit or unstage them first."
   fi
-}
-
-# Get current branch name:
-git:get-current-branch() {
-  git symbolic-ref --short HEAD 2>/dev/null || echo ""
 }
 
 #------------------------------------------------------------------------------

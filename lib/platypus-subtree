@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # Variables used via sourced platypus-common.bash
 #
 # platypus-subtree.sh - Manage Git subtrees in the monorepo
 #
@@ -37,6 +38,13 @@
 set -e
 
 #------------------------------------------------------------------------------
+# Source shared utilities:
+#------------------------------------------------------------------------------
+
+# shellcheck source=platypus-common.bash
+source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
+
+#------------------------------------------------------------------------------
 # Configuration:
 #------------------------------------------------------------------------------
 
@@ -44,70 +52,25 @@ VERSION=0.0.1
 CONFIG_FILE=".gitsubtrees"
 
 #------------------------------------------------------------------------------
-# Global state:
+# Subtree-specific state (quiet_wanted, verbose_wanted, dry_run, debug_wanted
+# are inherited from platypus-common.bash):
 #------------------------------------------------------------------------------
-
-quiet_wanted=false
-verbose_wanted=false
-dry_run=false
-debug_wanted=false
 
 # Will be set by find-repo-root
 REPO_ROOT=""
 CONFIG_PATH=""
 
 #------------------------------------------------------------------------------
-# Utility functions:
+# Utility functions (say, o, err, error, debug, RUN in platypus-common.bash):
 #------------------------------------------------------------------------------
-
-say() {
-  $quiet_wanted || echo "$@"
-}
-
-o() {
-  if $verbose_wanted; then
-    echo "  * $*"
-  fi
-}
-
-debug() {
-  if $debug_wanted; then
-    echo "DEBUG: $*" >&2
-  fi
-}
-
-err() {
-  echo "$@" >&2
-}
-
-error() {
-  echo "ERROR: $*" >&2
-  exit 1
-}
-
-# Run a command, optionally showing it in verbose/debug mode
-RUN() {
-  if $debug_wanted; then
-    echo "+ $*" >&2
-  elif $verbose_wanted; then
-    echo "  > $*" >&2
-  fi
-  
-  if $dry_run; then
-    return 0
-  fi
-  
-  "$@"
-}
 
 #------------------------------------------------------------------------------
 # Repository and config file location:
 #------------------------------------------------------------------------------
 
-# Find the repository root directory
+# Find the repository root directory and set config path
 find-repo-root() {
-  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) ||
-    error "Not in a git repository."
+  git:find-repo-root  # Sets REPO_ROOT from platypus-common.bash
   CONFIG_PATH="$REPO_ROOT/$CONFIG_FILE"
 }
 
@@ -311,16 +274,7 @@ subtree:tracking-ref() {
 subtree:assert-clean-worktree() {
   ensure-repo-root
   cd "$REPO_ROOT"
-  
-  git update-index -q --ignore-submodules --refresh
-  
-  if ! git diff-files --quiet --ignore-submodules; then
-    error "Working tree has unstaged changes. Please commit or stash them first."
-  fi
-  
-  if ! git diff-index --quiet --ignore-submodules HEAD --; then
-    error "Working tree has staged but uncommitted changes. Please commit or stash them first."
-  fi
+  git:assert-clean-worktree  # Uses shared function from platypus-common.bash
 }
 
 # Normalize a prefix (remove trailing slash, validate)

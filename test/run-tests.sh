@@ -167,7 +167,8 @@ run_shellcheck() {
 
   # Check lib scripts
   echo "Checking lib scripts..."
-  if shellcheck lib/platypus lib/platypus-subtree lib/platypus-svn; then
+  # --severity=warning ignores info-level messages (like SC1091 for dynamic sources)
+  if shellcheck --severity=warning lib/platypus lib/platypus-common.bash lib/platypus-subtree lib/platypus-svn; then
     success "lib scripts passed shellcheck"
   else
     error "lib scripts failed shellcheck"
