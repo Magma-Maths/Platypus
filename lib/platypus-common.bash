@@ -117,8 +117,10 @@ git:get-current-branch() {
 }
 
 # Assert the working tree is clean (no unstaged or staged changes)
-# Usage: git:assert-clean-worktree
+# Usage: git:assert-clean-worktree [message_prefix]
+#   message_prefix: Optional prefix for error messages (default: "Working tree")
 git:assert-clean-worktree() {
+  local msg_prefix="${1:-Working tree}"
   git update-index -q --ignore-submodules --refresh
   
   # Check for unstaged changes
@@ -128,7 +130,7 @@ git:assert-clean-worktree() {
   
   # Check for staged but uncommitted changes
   if ! git diff-index --quiet --ignore-submodules HEAD -- 2>/dev/null; then
-    error "Working tree has staged but uncommitted changes. Please commit or stash them first."
+    error "${msg_prefix} has staged (uncommitted) changes. Please commit or stash them first."
   fi
 }
 
@@ -166,15 +168,24 @@ git:assert-at-root() {
 
 # Parse common global options and return remaining arguments
 # Sets: quiet_wanted, verbose_wanted, debug_wanted, dry_run
-# Usage: eval "set -- $(common:parse-options "$@")"
+# Sets: COMMON_PARSE_OPTIONS_REMAINING (array of remaining args)
+# Usage: common:parse-options "$@" && eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
+#
+# Note: --help and --version are passed through as regular arguments.
+# Each module should handle them in its main() function.
 #
 # Note: This is a helper - each module should still handle its own
 # module-specific options in addition to these common ones.
 common:parse-options() {
-  local args=()
+  COMMON_PARSE_OPTIONS_REMAINING=()
   
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      -h|--help|--version)
+        # Pass through to caller to handle
+        COMMON_PARSE_OPTIONS_REMAINING+=("$1")
+        shift
+        ;;
       -v|--verbose)
         verbose_wanted=true
         shift
@@ -198,18 +209,15 @@ common:parse-options() {
         ;;
       --)
         shift
-        args+=("$@")
+        COMMON_PARSE_OPTIONS_REMAINING+=("$@")
         break
         ;;
       *)
-        args+=("$1")
+        COMMON_PARSE_OPTIONS_REMAINING+=("$1")
         shift
         ;;
     esac
   done
-  
-  # Output remaining args in a format that can be used with eval set --
-  printf '%q ' "${args[@]}"
 }
 
 #------------------------------------------------------------------------------

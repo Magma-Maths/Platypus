@@ -22,9 +22,9 @@
 #   ./lib/platypus-svn.sh [options]   # Can also run directly
 #
 
-# ShellCheck: disable SC2034 (variable appears unused)
+# ShellCheck: disable SC2034,SC2154 (variables used via sourced platypus-common.bash)
 # Many variables here are used indirectly via dynamic references or exported
-# shellcheck disable=2034
+# shellcheck disable=2034,2154
 
 # Exit on any errors:
 set -e
@@ -298,7 +298,7 @@ add-conflict-note() {
 # Check that system is ready for this script:
 assert-environment-ok() {
   # Check git is available
-  type git &> /dev/null ||
+  command:exists git ||
     error "Can't find 'git' command in PATH."
 
   # Check git-svn is available
@@ -310,21 +310,11 @@ assert-environment-ok() {
   git_version=$(git --version | cut -d ' ' -f3)
   o "Git version: $git_version"
 
-  # We must be inside a git repo
-  git rev-parse --git-dir &> /dev/null ||
-    error "Not inside a git repository."
+  # Use common git validation functions
+  git:assert-in-repo
+  git:assert-at-root
 
-  # Must be in a work-tree
-  local in_worktree
-  in_worktree=$(git rev-parse --is-inside-work-tree 2>/dev/null || echo "false")
-  [[ $in_worktree == true ]] ||
-    error "Must be inside a git working tree."
-
-  # Must run from repo root
-  [[ -z $(git rev-parse --show-prefix 2>/dev/null) ]] ||
-    error "Must run from top level directory (root) of the repository."
-
-  # Check we're not on special branches
+  # SVN-specific checks only
   local current_branch
   current_branch=$(git:get-current-branch)
   
@@ -337,26 +327,6 @@ assert-environment-ok() {
   # Must be on a branch (not detached HEAD)
   [[ -n $current_branch ]] ||
     error "Must be on a branch to run this command. HEAD is detached."
-}
-
-#------------------------------------------------------------------------------
-# Git wrapper functions (base functions in platypus-common.bash):
-#------------------------------------------------------------------------------
-
-# Override assert-clean-worktree with SVN-specific error messages:
-git:assert-clean-worktree() {
-  o "Assert working tree is clean"
-  git update-index -q --refresh
-  
-  # Check for unstaged changes
-  if ! git diff-files --quiet; then
-    error "Unstaged changes detected. Run 'git status' to see them."
-  fi
-  
-  # Check for staged changes
-  if ! git diff-index --quiet --cached HEAD 2>/dev/null; then
-    error "Index has staged (uncommitted) changes. Commit or unstage them first."
-  fi
 }
 
 #------------------------------------------------------------------------------
@@ -445,6 +415,7 @@ command:pull() {
   o "Original branch: $original_branch"
   
   # Require clean working tree
+  o "Assert working tree is clean"
   git:assert-clean-worktree
   
   # Step 1: Fetch latest Git state (needed for marker check)
@@ -502,6 +473,7 @@ command:push() {
   o "Original branch: $original_branch"
   
   # Require clean working tree
+  o "Assert working tree is clean"
   git:assert-clean-worktree
   
   # Step 1: Fetch latest Git state
@@ -867,33 +839,14 @@ sync:merge-back() {
 #------------------------------------------------------------------------------
 
 main() {
-  # Parse global options first, collecting remaining args
+  # Parse global options first using common parser
+  # Note: We handle SVN-specific options (--push-conflicts, --continue, --abort) separately
   local args=()
+  local svn_specific_args=()
+  
+  # First pass: extract SVN-specific options
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -h|--help)
-        usage
-        ;;
-      -v|--verbose)
-        verbose_wanted=true
-        shift
-        ;;
-      -q|--quiet)
-        quiet_wanted=true
-        shift
-        ;;
-      -n|--dry-run)
-        dry_run=true
-        shift
-        ;;
-      -d|--debug)
-        debug_wanted=true
-        shift
-        ;;
-      -x)
-        set -x
-        shift
-        ;;
       --push-conflicts)
         push_conflicts=true
         shift
@@ -906,24 +859,31 @@ main() {
         abort_mode=true
         shift
         ;;
-      --version)
-        version
-        ;;
-      --)
-        shift
-        args+=("$@")
-        break
-        ;;
-      -*)
-        # Pass to command
-        args+=("$1")
-        shift
-        ;;
       *)
         args+=("$1")
         shift
         ;;
     esac
+  done
+  
+  # Now parse common options
+  common:parse-options "${args[@]}"
+  eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
+  
+  # Handle --help and --version
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --version)
+        version
+        ;;
+      *)
+        break
+        ;;
+    esac
+    shift
   done
   
   # Verbose implies not quiet
@@ -955,7 +915,6 @@ main() {
   fi
   
   # Require a subcommand
-  set -- "${args[@]}"
   if [[ $# -eq 0 ]]; then
     usage
   fi
