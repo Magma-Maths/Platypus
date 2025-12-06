@@ -52,7 +52,16 @@ setup_platypus_svn_repo() {
     cd "$GIT_REPO"
     git svn init "$SVN_URL"
     git svn fetch
-    git checkout -b main git-svn
+    
+    # Reset main branch to point to git-svn
+    # (git may auto-create main due to init.defaultBranch)
+    if git rev-parse --verify main >/dev/null 2>&1; then
+      git checkout main
+      git reset --hard git-svn
+    else
+      git checkout -b main git-svn
+    fi
+    
     git config user.name "$GIT_AUTHOR_NAME"
     git config user.email "$GIT_AUTHOR_EMAIL"
     
@@ -82,6 +91,9 @@ setup_platypus_svn_repo() {
   # The svn branch should not have the new file yet
   git checkout svn 2>/dev/null || git checkout -b svn git-svn
   [ ! -f "new-file.txt" ]
+  
+  # Switch back to main for platypus svn pull
+  git checkout main
   
   # Pull should bring in the new commit
   run platypus svn pull

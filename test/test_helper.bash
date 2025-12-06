@@ -642,10 +642,20 @@ stop_svn_server() {
 create_svn_repo() {
   local name=$1
   
+  # Remove existing repo if present (for test isolation)
+  docker exec platypus-svn-server rm -rf "/home/svn/$name" 2>/dev/null || true
+  
   # Create the repository
   docker exec platypus-svn-server svnadmin create "/home/svn/$name"
   
-  # Make it accessible (update authz if needed)
+  # Configure anonymous access for testing
+  docker exec platypus-svn-server sh -c "
+    echo '[general]' > /home/svn/$name/conf/svnserve.conf
+    echo 'anon-access = write' >> /home/svn/$name/conf/svnserve.conf
+    echo 'auth-access = write' >> /home/svn/$name/conf/svnserve.conf
+  "
+  
+  # Make it accessible
   docker exec platypus-svn-server chmod -R 777 "/home/svn/$name"
   
   echo "svn://localhost:3690/$name"
