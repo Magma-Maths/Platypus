@@ -48,15 +48,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
 # Configuration:
 #------------------------------------------------------------------------------
 
-VERSION=0.0.1
-CONFIG_FILE=".gitsubtrees"
+# Read version from common (with fallback for standalone sourcing)
+: "${PLATYPUS_SUBTREE_VERSION:=0.0.0}"
+# Read config file name from common (with fallback)
+: "${PLATYPUS_SUBTREE_CONFIG:=.gitsubtrees}"
 
 #------------------------------------------------------------------------------
 # Subtree-specific state (quiet_wanted, verbose_wanted, dry_run, debug_wanted
 # are inherited from platypus-common.bash):
 #------------------------------------------------------------------------------
 
-# Will be set by find-repo-root
+# Will be set by ensure-repo-root
 REPO_ROOT=""
 CONFIG_PATH=""
 
@@ -68,17 +70,12 @@ CONFIG_PATH=""
 # Repository and config file location:
 #------------------------------------------------------------------------------
 
-# Find the repository root directory and set config path
-find-repo-root() {
-  git:find-repo-root  # Sets REPO_ROOT from platypus-common.bash
-  CONFIG_PATH="$REPO_ROOT/$CONFIG_FILE"
-}
-
 # Ensure we're in a git repo and have found the config path
 ensure-repo-root() {
   if [[ -z "$REPO_ROOT" ]]; then
-    find-repo-root
+    git:find-repo-root  # Sets REPO_ROOT from platypus-common.bash
   fi
+  CONFIG_PATH="$REPO_ROOT/$PLATYPUS_SUBTREE_CONFIG"
 }
 
 #------------------------------------------------------------------------------
@@ -231,7 +228,7 @@ subtree:assert-configured() {
   local prefix=$1
   
   if ! config:exists "$prefix"; then
-    error "Subtree '$prefix' is not configured in $CONFIG_FILE.
+    error "Subtree '$prefix' is not configured in $PLATYPUS_SUBTREE_CONFIG.
 Use 'platypus subtree init $prefix' or 'platypus subtree add $prefix <repo>' first."
   fi
 }
@@ -429,7 +426,7 @@ EOF
 }
 
 version() {
-  echo "platypus-subtree version $VERSION"
+  echo "platypus-subtree version $PLATYPUS_SUBTREE_VERSION"
   exit 0
 }
 
@@ -477,7 +474,7 @@ subtree:command:init() {
   
   # Check not already configured
   if config:exists "$prefix"; then
-    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+    error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
   
   # Prompt for remote if not provided
@@ -493,7 +490,7 @@ subtree:command:init() {
   if $dry_run; then
     say "[dry-run] Would fetch from: $remote ($branch)"
     say "[dry-run] Would merge to establish subtree relationship"
-    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    say "[dry-run] Would create config for '$prefix' in $PLATYPUS_SUBTREE_CONFIG"
     return 0
   fi
   
@@ -568,14 +565,14 @@ subtree:command:add() {
   
   # Check not already configured
   if config:exists "$prefix"; then
-    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+    error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
   
   say "Adding subtree '$prefix' from $repo ($ref)..."
   
   if $dry_run; then
     say "[dry-run] Would run: git subtree add --prefix=$prefix $squash_opt $repo $ref"
-    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    say "[dry-run] Would create config for '$prefix' in $PLATYPUS_SUBTREE_CONFIG"
     return 0
   fi
   
@@ -642,7 +639,7 @@ subtree:command:create() {
   
   # Check not already configured
   if config:exists "$prefix"; then
-    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+    error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
   
   # Test upstream is accessible
@@ -657,7 +654,7 @@ subtree:command:create() {
   if $dry_run; then
     say "[dry-run] Would run: git subtree split --prefix=$prefix --rejoin"
     say "[dry-run] Would push to: $upstream ($branch)"
-    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    say "[dry-run] Would create config for '$prefix' in $PLATYPUS_SUBTREE_CONFIG"
     return 0
   fi
   
@@ -972,7 +969,7 @@ subtree:command:list() {
   subtrees=$(config:list)
   
   if [[ -z "$subtrees" ]]; then
-    say "No subtrees configured in $CONFIG_FILE."
+    say "No subtrees configured in $PLATYPUS_SUBTREE_CONFIG."
     return 0
   fi
   
@@ -990,41 +987,17 @@ subtree:command:list() {
 }
 
 #------------------------------------------------------------------------------
-# Main:
+# Command dispatch:
 #------------------------------------------------------------------------------
 
-subtree:main() {
-  # Parse global options first using common parser
-  common:parse-options "$@"
-  eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
-  
-  # Handle --help and --version before command dispatch
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -h|--help)
-        usage
-        ;;
-      --version)
-        version
-        ;;
-      *)
-        break
-        ;;
-    esac
-    shift
-  done
-  
-  if [[ $# -eq 0 ]]; then
-    usage
-  fi
-
-  # Initialize repo root
-  find-repo-root
-
-  local command=$1
+subtree:dispatch() {
+  local cmd=$1
   shift
-
-  case "$command" in
+  
+  # Initialize repo root (needed for most commands)
+  ensure-repo-root
+  
+  case "$cmd" in
     init)
       subtree:command:init "$@"
       ;;
@@ -1053,9 +1026,17 @@ subtree:main() {
       usage
       ;;
     *)
-      error "Unknown subtree command: $command. Use 'platypus subtree --help' for usage."
+      error "Unknown subtree command: $cmd. Use 'platypus subtree --help' for usage."
       ;;
   esac
+}
+
+#------------------------------------------------------------------------------
+# Main:
+#------------------------------------------------------------------------------
+
+subtree:main() {
+  common:dispatch usage version subtree:dispatch "$@"
 }
 
 #------------------------------------------------------------------------------
