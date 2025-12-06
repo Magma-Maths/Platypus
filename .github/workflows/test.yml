@@ -34,20 +34,25 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global init.defaultBranch main
 
-      - name: Debug - Test with and without filter-tags
+      - name: Debug - Run tests 6 and 7 individually
         run: |
           source .rc
           echo "=== Bats version ==="
           bats --version
           echo ""
-          echo "=== Test svn-pull.bats WITHOUT --filter-tags ==="
-          bats test/svn-pull.bats
+          echo "=== Running test 6 by name ==="
+          bats test/svn-pull.bats --filter "dirty working tree" || echo "Test 6 failed with exit code $?"
           echo ""
-          echo "=== Test svn-pull.bats WITH --filter-tags ==="
-          bats --filter-tags '!docker' test/svn-pull.bats || true
+          echo "=== Running test 7 by name ==="
+          bats test/svn-pull.bats --filter "unstaged changes" || echo "Test 7 failed with exit code $?"
           echo ""
-          echo "=== Checking test file for any issues ==="
-          head -150 test/svn-pull.bats | cat -A | head -50
+          echo "=== Manually testing create_mock_svn_repo ==="
+          cd /tmp
+          source "$PLATYPUS_ROOT/test/test_helper.bash"
+          source "$PLATYPUS_ROOT/test/svn-pull.bats" 2>/dev/null || true
+          echo "Creating mock repo..."
+          repo=$(create_mock_svn_repo) && echo "Created: $repo" || echo "FAILED to create mock repo"
+          ls -la "$repo" 2>/dev/null || echo "Directory doesn't exist"
       
       - name: Run tests (excluding Docker tests)
         run: ./test/run-tests.sh --tests --no-docker
