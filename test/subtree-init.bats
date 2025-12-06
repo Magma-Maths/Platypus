@@ -47,7 +47,7 @@ load test_helper
   assert_git_config ".gitsubtrees" "subtree.lib/foo.branch" "develop"
 }
 
-@test "init records parent commit" {
+@test "init records preMergeParent commit" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -57,15 +57,15 @@ load test_helper
   git add lib/foo
   git commit -m "Add lib/foo"
   
-  local expected_parent
-  expected_parent=$(git rev-parse HEAD)
+  local expected_preMergeParent
+  expected_preMergeParent=$(git rev-parse HEAD)
   
   run platypus subtree init lib/foo -r git@github.com:owner/foo.git
   [ "$status" -eq 0 ]
   
-  local actual_parent
-  actual_parent=$(git config -f .gitsubtrees subtree.lib/foo.parent)
-  [ "$actual_parent" = "$expected_parent" ]
+  local actual_preMergeParent
+  actual_preMergeParent=$(git config -f .gitsubtrees subtree.lib/foo.preMergeParent)
+  [ "$actual_preMergeParent" = "$expected_preMergeParent" ]
 }
 
 #------------------------------------------------------------------------------

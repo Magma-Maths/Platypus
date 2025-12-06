@@ -72,7 +72,7 @@ setup() {
   config:set "lib/foo" remote "git@github.com:owner/foo.git"
   config:set "lib/foo" branch "main"
   config:set "lib/foo" upstream "abc123"
-  config:set "lib/foo" parent "def456"
+  config:set "lib/foo" preMergeParent "def456"
   
   # Create the directory so status shows OK
   mkdir -p lib/foo

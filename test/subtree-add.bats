@@ -30,7 +30,7 @@ load test_helper
   assert_git_config ".gitsubtrees" "subtree.lib/foo.branch" "main"
 }
 
-@test "add records upstream and parent commits" {
+@test "add records upstream and preMergeParent commits" {
   local repo upstream
   repo=$(create_monorepo)
   upstream=$(create_upstream "foo")
@@ -44,10 +44,10 @@ load test_helper
   upstream_sha=$(git config -f .gitsubtrees subtree.lib/foo.upstream)
   [ -n "$upstream_sha" ]
   
-  # Should have parent commit recorded
-  local parent_sha
-  parent_sha=$(git config -f .gitsubtrees subtree.lib/foo.parent)
-  [ -n "$parent_sha" ]
+  # Should have preMergeParent commit recorded
+  local preMergeParent_sha
+  preMergeParent_sha=$(git config -f .gitsubtrees subtree.lib/foo.preMergeParent)
+  [ -n "$preMergeParent_sha" ]
 }
 
 @test "add with different ref" {
