@@ -125,8 +125,15 @@ check_deps() {
 
   if $RUN_TESTS && ! command -v bats &> /dev/null; then
     error "bats is not installed"
-    echo "  Install with: npm install -g bats               (Any OS)"
+    echo "  Install with: sudo apt-get install bats         (Linux)"
     echo "                brew install bats-core            (macOS)"
+    missing=1
+  fi
+
+  if $RUN_TESTS && ! git svn --version &> /dev/null; then
+    error "git-svn is not installed (required for svn tests)"
+    echo "  Install with: sudo apt-get install git-svn      (Linux)"
+    echo "                brew install git                  (macOS - includes git-svn)"
     missing=1
   fi
 
@@ -144,6 +151,9 @@ check_deps() {
       echo "  shellcheck: $(shellcheck --version 2>/dev/null | head -2 | tail -1 || echo 'unknown')"
     fi
     echo "  git: $(git --version 2>/dev/null || echo 'unknown')"
+    if git svn --version &>/dev/null; then
+      echo "  git-svn: $(git svn --version 2>/dev/null | head -1 || echo 'unknown')"
+    fi
     echo "  bash: ${BASH_VERSION:-unknown}"
     echo ""
   fi

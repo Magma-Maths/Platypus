@@ -22,8 +22,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y subversion
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats git-svn
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -56,14 +55,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install bats-core and subversion
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y subversion
-          # Install latest bats from source
-          git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats
-          sudo /tmp/bats/install.sh /usr/local
-          bats --version
+          sudo apt-get install -y bats git-svn subversion
 
       - name: Set up Git identity
         run: |
