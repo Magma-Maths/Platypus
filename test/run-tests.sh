@@ -8,6 +8,7 @@
 #   ./run-tests.sh --tests      # Run only bats tests (excluding docker)
 #   ./run-tests.sh --docker     # Run only docker-tagged tests
 #   ./run-tests.sh --all        # Run all tests including docker
+#   ./run-tests.sh -j 4         # Run tests with 4 parallel jobs
 #   ./run-tests.sh --help       # Show help
 
 set -e
@@ -22,6 +23,7 @@ NC='\033[0m' # No Color
 RUN_SHELLCHECK=true
 RUN_TESTS=true
 DOCKER_MODE="exclude"  # "exclude", "only", or "all"
+BATS_JOBS=""  # Number of parallel jobs for bats (-j option)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -47,6 +49,14 @@ while [[ $# -gt 0 ]]; do
       DOCKER_MODE="all"
       shift
       ;;
+    -j|--jobs)
+      if [[ -z "${2:-}" ]]; then
+        error "-j/--jobs requires a value (number of parallel jobs)"
+        exit 1
+      fi
+      BATS_JOBS="$2"
+      shift 2
+      ;;
     --help|-h)
       cat <<EOF
 Usage: $0 [options]
@@ -59,6 +69,7 @@ Options:
   --docker        Run only docker-tagged tests (requires Docker)
   --no-docker     Exclude docker-tagged tests (default)
   --all           Run all tests including docker-tagged tests
+  -j, --jobs N    Run bats tests with N parallel jobs
   --help, -h      Show this help message
 
 By default, runs shellcheck and non-docker tests.
@@ -251,7 +262,13 @@ run_tests() {
   # Check git config (warn but don't modify)
   check_git_config
 
-  if bats "${filter_args[@]}" test/; then
+  # Build bats command arguments
+  local bats_args=("${filter_args[@]}")
+  if [[ -n "$BATS_JOBS" ]]; then
+    bats_args+=(-j "$BATS_JOBS")
+  fi
+
+  if bats "${bats_args[@]}" test/; then
     success "All tests passed"
     return 0
   else
