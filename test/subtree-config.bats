@@ -416,7 +416,7 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "init: preMergeParent is set to current HEAD" {
+@test "init: preMergeParent points to commit BEFORE the merge" {
   local repo
   repo=$(create_monorepo)
   cd "$repo"
@@ -427,20 +427,118 @@ setup() {
   git add lib/foo
   git commit -m "Add lib/foo"
   
-  local current_head
-  current_head=$(git rev-parse HEAD)
+  local pre_init_head
+  pre_init_head=$(git rev-parse HEAD)
   
-  # Create a bare upstream
+  # Create an upstream with content
   local upstream
-  upstream=$(create_bare_repo "upstream")
+  upstream="$TEST_TMP/upstream-$$"
+  git init "$upstream" >/dev/null 2>&1
+  cd "$upstream"
+  echo "upstream" > upstream.txt
+  git add upstream.txt
+  git commit -m "Upstream initial" >/dev/null 2>&1
   
-  # Init
+  # Init (now does fetch + merge)
+  cd "$repo"
   run platypus subtree init lib/foo -r "$upstream"
   [ "$status" -eq 0 ]
   
-  # preMergeParent should equal current HEAD (no merge in init)
+  # preMergeParent should equal what HEAD was before the merge
   local preMergeParent
   preMergeParent=$(config:get "lib/foo" preMergeParent)
-  [ "$preMergeParent" = "$current_head" ]
+  [ "$preMergeParent" = "$pre_init_head" ]
+  
+  # Current HEAD should be different (it's the merge commit)
+  local current_head
+  current_head=$(git rev-parse HEAD)
+  [ "$preMergeParent" != "$current_head" ]
+}
+
+@test "create: preMergeParent points to commit BEFORE the rejoin" {
+  local repo
+  repo=$(create_monorepo)
+  cd "$repo"
+  
+  # Create a directory to export as subtree
+  mkdir -p lib/foo
+  echo "content" > lib/foo/file.txt
+  git add lib/foo
+  git commit -m "Add lib/foo"
+  
+  local pre_create_head
+  pre_create_head=$(git rev-parse HEAD)
+  
+  # Create a bare upstream
+  local upstream
+  upstream="$TEST_TMP/upstream-$$"
+  git init --bare "$upstream" >/dev/null 2>&1
+  
+  # Create
+  run platypus subtree create lib/foo "$upstream"
+  [ "$status" -eq 0 ]
+  
+  # preMergeParent should equal what HEAD was before the rejoin
+  local preMergeParent
+  preMergeParent=$(config:get "lib/foo" preMergeParent)
+  [ "$preMergeParent" = "$pre_create_head" ]
+  
+  # Current HEAD should be different (it's the rejoin commit)
+  local current_head
+  current_head=$(git rev-parse HEAD)
+  [ "$preMergeParent" != "$current_head" ]
+}
+
+@test "create: splitSha is set and valid" {
+  local repo
+  repo=$(create_monorepo)
+  cd "$repo"
+  
+  mkdir -p lib/foo
+  echo "content" > lib/foo/file.txt
+  git add lib/foo
+  git commit -m "Add lib/foo"
+  
+  local upstream
+  upstream="$TEST_TMP/upstream-$$"
+  git init --bare "$upstream" >/dev/null 2>&1
+  
+  run platypus subtree create lib/foo "$upstream"
+  [ "$status" -eq 0 ]
+  
+  # splitSha should be set
+  local splitSha
+  splitSha=$(config:get "lib/foo" splitSha)
+  [ -n "$splitSha" ]
+  
+  # Verify it's a valid commit
+  run git cat-file -t "$splitSha"
+  [ "$status" -eq 0 ]
+  [ "$output" = "commit" ]
+}
+
+@test "create: upstream is set to splitSha" {
+  local repo
+  repo=$(create_monorepo)
+  cd "$repo"
+  
+  mkdir -p lib/foo
+  echo "content" > lib/foo/file.txt
+  git add lib/foo
+  git commit -m "Add lib/foo"
+  
+  local upstream
+  upstream="$TEST_TMP/upstream-$$"
+  git init --bare "$upstream" >/dev/null 2>&1
+  
+  run platypus subtree create lib/foo "$upstream"
+  [ "$status" -eq 0 ]
+  
+  # upstream and splitSha should be the same for create
+  local recorded_upstream splitSha
+  recorded_upstream=$(config:get "lib/foo" upstream)
+  splitSha=$(config:get "lib/foo" splitSha)
+  
+  [ "$recorded_upstream" = "$splitSha" ]
 }
 

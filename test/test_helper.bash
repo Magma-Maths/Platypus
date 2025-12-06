@@ -215,6 +215,27 @@ assert_file_contains() {
   fi
 }
 
+# Assert file content exactly matches
+# Usage: assert_file_content <path> <expected_content>
+assert_file_content() {
+  local path=$1
+  local expected=$2
+  
+  if [[ ! -f "$path" ]]; then
+    echo "File '$path' does not exist" >&2
+    return 1
+  fi
+  
+  local actual
+  actual=$(cat "$path")
+  
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Expected file '$path' to contain: $expected" >&2
+    echo "Actual content: $actual" >&2
+    return 1
+  fi
+}
+
 # Assert command output contains string
 # Usage: assert_output_contains <string>
 # (use after running a command with 'run')

@@ -362,8 +362,10 @@ Manage Git subtrees in the monorepo. Configuration is stored in .gitsubtrees
 at the repository root (similar to .gitmodules).
 
 Commands:
+  create <prefix> <upstream> [-b <branch>]
+                    Export existing directory to a new upstream repo
   init <prefix> [-r <remote>] [-b <branch>]
-                    Register an existing directory as a subtree
+                    Link existing directory to an existing upstream
   add <prefix> <repo> [<ref>]
                     Add a new subtree from a remote repository
   pull <prefix>     Pull upstream changes into subtree
@@ -380,12 +382,15 @@ Options:
   -d, --debug       Show debug output
   --version         Show version information
 
-For init command:
-  -r, --remote      Remote repository URL
+For create/init commands:
   -b, --branch      Remote branch (default: main)
+  -r, --remote      Remote repository URL (init only)
 
 Examples:
-  # Register existing lib/foo directory as a subtree
+  # Export existing lib/foo to a new upstream repo
+  platypus subtree create lib/foo git@github.com:owner/foo.git
+
+  # Link existing lib/foo to an existing upstream
   platypus subtree init lib/foo -r git@github.com:owner/foo.git
 
   # Add a new subtree from a remote
@@ -403,15 +408,12 @@ Examples:
   # Show status of all subtrees
   platypus subtree status
 
-  # List all configured subtrees
-  platypus subtree list
-
 Configuration file (.gitsubtrees):
   [subtree "lib/foo"]
       remote = git@github.com:owner/foo.git
       branch = main
       upstream = <last synced upstream commit>
-      parent = <monorepo commit at last sync>
+      preMergeParent = <monorepo commit before last sync>
       splitSha = <last split SHA for incremental push>
 EOF
   exit 0
@@ -426,8 +428,9 @@ version() {
 # Commands:
 #------------------------------------------------------------------------------
 
-# Initialize an existing directory as a subtree
+# Initialize an existing directory as a subtree (link to existing upstream)
 # Usage: command:init <prefix> [-r <remote>] [-b <branch>]
+# This fetches from the upstream and merges to establish a merge base
 command:init() {
   local prefix=""
   local remote=""
@@ -478,34 +481,54 @@ command:init() {
     error "Remote is required for init."
   fi
   
-  say "Initializing subtree '$prefix'..."
-  o "Remote: $remote"
+  # Ensure clean worktree
+  subtree:assert-clean-worktree
+  
+  say "Initializing subtree '$prefix' from $remote..."
   o "Branch: $branch"
   
   if $dry_run; then
+    say "[dry-run] Would fetch from: $remote ($branch)"
+    say "[dry-run] Would merge to establish subtree relationship"
     say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
-    say "[dry-run]   remote = $remote"
-    say "[dry-run]   branch = $branch"
     return 0
   fi
   
-  # Create config entry
+  # Capture pre-merge parent BEFORE the merge (stable reference)
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  
+  # Create config entry first (so it can be included in merge commit)
   config:set "$prefix" remote "$remote"
   config:set "$prefix" branch "$branch"
   
-  # Record current state (no merge in init, so this is just for reference)
-  local preMergeParent
-  preMergeParent=$(git rev-parse HEAD)
+  # Fetch from upstream
+  say "Fetching from upstream..."
+  RUN git fetch "$remote" "$branch"
+  
+  local upstream_sha
+  upstream_sha=$(git rev-parse FETCH_HEAD)
+  o "Upstream SHA: $upstream_sha"
+  
+  # Merge to establish subtree relationship
+  # Use -Xsubtree=prefix with --allow-unrelated-histories since upstream may have different history
+  say "Establishing subtree merge base..."
+  RUN git merge -Xsubtree="$prefix" --allow-unrelated-histories FETCH_HEAD \
+    -m "Initialize subtree '$prefix' from $remote"
+  
+  # Record sync state
+  config:set "$prefix" upstream "$upstream_sha"
   config:set "$prefix" preMergeParent "$preMergeParent"
   
-  # Stage the config file
+  # Stage and amend to include config in the merge commit
   RUN git add "$CONFIG_PATH"
-  say "Subtree '$prefix' initialized."
-  say "Config added to $CONFIG_FILE (staged, not committed)."
+  RUN git commit --amend --no-edit
+  
+  say "Subtree '$prefix' initialized from $remote ($branch)."
   say ""
   say "Next steps:"
-  say "  1. Commit the config: git commit -m 'Add subtree config for $prefix'"
-  say "  2. To push changes upstream: platypus subtree push $prefix"
+  say "  - Pull upstream changes with: platypus subtree pull $prefix"
+  say "  - Push local changes with: platypus subtree push $prefix"
 }
 
 # Add a new subtree from a remote repository
@@ -589,6 +612,111 @@ command:add() {
   RUN git commit --amend --no-edit
   
   say "Subtree '$prefix' added from $repo ($ref)."
+}
+
+# Create a new upstream from an existing directory (export)
+# Usage: command:create <prefix> <upstream> [-b <branch>]
+command:create() {
+  local prefix=""
+  local upstream=""
+  local branch="main"
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -b|--branch)
+        branch="$2"
+        shift 2
+        ;;
+      -*)
+        error "Unknown option for create: $1"
+        ;;
+      *)
+        if [[ -z "$prefix" ]]; then
+          prefix="$1"
+        elif [[ -z "$upstream" ]]; then
+          upstream="$1"
+        else
+          error "Unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  
+  [[ -n "$prefix" ]] || error "Usage: platypus subtree create <prefix> <upstream> [-b <branch>]"
+  [[ -n "$upstream" ]] || error "Usage: platypus subtree create <prefix> <upstream> [-b <branch>]"
+  
+  # Normalize prefix
+  prefix=$(subtree:normalize-prefix "$prefix")
+  
+  # Check directory exists and is not empty
+  subtree:assert-directory-exists "$prefix"
+  
+  # Check not already configured
+  if config:exists "$prefix"; then
+    error "Subtree '$prefix' is already configured in $CONFIG_FILE."
+  fi
+  
+  # Ensure clean worktree
+  subtree:assert-clean-worktree
+  
+  # Test upstream is accessible
+  o "Testing upstream access..."
+  if ! git ls-remote "$upstream" &>/dev/null; then
+    error "Cannot access upstream: $upstream"
+  fi
+  
+  say "Creating subtree '$prefix' with upstream $upstream..."
+  o "Branch: $branch"
+  
+  if $dry_run; then
+    say "[dry-run] Would run: git subtree split --prefix=$prefix --rejoin"
+    say "[dry-run] Would push to: $upstream ($branch)"
+    say "[dry-run] Would create config for '$prefix' in $CONFIG_FILE"
+    return 0
+  fi
+  
+  # Capture pre-merge parent BEFORE the split --rejoin (stable reference)
+  local preMergeParent
+  preMergeParent=$(git rev-parse HEAD)
+  
+  # Split with --rejoin to establish merge base
+  # This creates a merge commit that links the subtree history
+  local temp_branch="subtree-create-$$"
+  say "Splitting subtree history..."
+  local split_sha
+  split_sha=$(git subtree split --prefix="$prefix" --rejoin -b "$temp_branch")
+  o "Split SHA: $split_sha"
+  
+  # Push to upstream
+  say "Pushing to upstream..."
+  if ! RUN git push "$upstream" "$temp_branch:$branch"; then
+    # Cleanup on failure
+    git branch -D "$temp_branch" 2>/dev/null || true
+    error "Failed to push to upstream: $upstream"
+  fi
+  
+  # Create config
+  config:set "$prefix" remote "$upstream"
+  config:set "$prefix" branch "$branch"
+  config:set "$prefix" splitSha "$split_sha"
+  config:set "$prefix" upstream "$split_sha"
+  config:set "$prefix" preMergeParent "$preMergeParent"
+  
+  # Stage and amend to include config in the rejoin commit
+  RUN git add "$CONFIG_PATH"
+  RUN git commit --amend --no-edit
+  
+  # Cleanup temp branch
+  git branch -D "$temp_branch" 2>/dev/null || true
+  
+  say "Subtree '$prefix' created and pushed to $upstream ($branch)."
+  say ""
+  say "Next steps:"
+  say "  - External contributors can now clone and work on $upstream"
+  say "  - Pull their changes with: platypus subtree pull $prefix"
+  say "  - Push your changes with: platypus subtree push $prefix"
 }
 
 # Pull upstream changes into subtree
@@ -1023,6 +1151,9 @@ main() {
       ;;
     add)
       command:add "$@"
+      ;;
+    create)
+      command:create "$@"
       ;;
     pull)
       command:pull "$@"
