@@ -334,7 +334,7 @@ assert-environment-ok() {
 #------------------------------------------------------------------------------
 
 # Abort in-progress operation:
-command:abort() {
+svn:command:abort() {
   state:exists || error "No operation in progress to abort."
   
   state:load
@@ -357,7 +357,7 @@ command:abort() {
 }
 
 # Continue after conflict resolution:
-command:continue() {
+svn:command:continue() {
   state:exists || error "No operation in progress to continue."
   
   state:load
@@ -402,7 +402,7 @@ command:continue() {
 }
 
 # Pull latest changes from SVN:
-command:pull() {
+svn:command:pull() {
   say "=== platypus svn pull v$VERSION ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
@@ -450,10 +450,11 @@ command:pull() {
   original_branch=
   
   say "=== Done: SVN pull complete ==="
+  return 0
 }
 
 # Push Git commits to SVN:
-command:push() {
+svn:command:push() {
   say "=== platypus svn push v$VERSION ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
@@ -539,6 +540,8 @@ command:push() {
     say "Someone should resolve these in both Git and SVN repositories."
     exit $EXIT_CONFLICTS
   fi
+  
+  return 0
 }
 
 #------------------------------------------------------------------------------
@@ -575,6 +578,10 @@ sync:update-svn-mirror() {
   RUN git switch -C "$SVN_BRANCH" "$SVN_REMOTE_REF"
 
   o "Rebase from SVN"
+  if $dry_run; then
+    say "[dry-run] Would run: git svn rebase"
+    return 0
+  fi
   RUN git svn rebase ||
     error "git svn rebase failed. Check SVN server connectivity and authentication."
 }
@@ -637,9 +644,11 @@ sync:prepare-export-branch() {
   RUN git switch -C "$EXPORT_BRANCH" "$SVN_BRANCH"
 
 # Safeguard: ensure export branch starts clean
-  RUN git update-index -q --refresh
-  git diff-index --quiet HEAD -- ||
-    error "Export branch not clean. Something is off."
+  if ! $dry_run; then
+    RUN git update-index -q --refresh
+    git diff-index --quiet HEAD -- ||
+      error "Export branch not clean. Something is off."
+  fi
 }
 
 # Export a single commit to the export branch:
@@ -838,7 +847,7 @@ sync:merge-back() {
 # Main function:
 #------------------------------------------------------------------------------
 
-main() {
+svn:main() {
   # Parse global options first using common parser
   # Note: We handle SVN-specific options (--push-conflicts, --continue, --abort) separately
   local args=()
@@ -904,13 +913,13 @@ main() {
 
   # Handle --abort early (no subcommand needed)
   if $abort_mode; then
-    command:abort
+    svn:command:abort
     exit 0
   fi
 
   # Handle --continue early (no subcommand needed)
   if $continue_mode; then
-    command:continue
+    svn:command:continue
     exit 0
   fi
   
@@ -924,10 +933,10 @@ main() {
   
   case "$command" in
     pull)
-      command:pull "$@"
+      svn:command:pull "$@"
       ;;
     push)
-      command:push "$@"
+      svn:command:push "$@"
       ;;
     help|--help|-h)
       usage
@@ -942,4 +951,4 @@ main() {
 # Entry point:
 #------------------------------------------------------------------------------
 
-[[ ${BASH_SOURCE[0]} != "$0" ]] || main "$@"
+[[ ${BASH_SOURCE[0]} != "$0" ]] || svn:main "$@"

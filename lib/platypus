@@ -51,6 +51,17 @@ LIB_DIR="$PLATYPUS_ROOT/lib"
 source "$LIB_DIR/platypus-common.bash"
 
 #------------------------------------------------------------------------------
+# Source modules:
+#------------------------------------------------------------------------------
+
+# shellcheck source=platypus-svn
+source "$LIB_DIR/platypus-svn"
+SVN_VERSION="$VERSION"
+# shellcheck source=platypus-subtree
+source "$LIB_DIR/platypus-subtree"
+SUBTREE_VERSION="$VERSION"
+
+#------------------------------------------------------------------------------
 # Help:
 #------------------------------------------------------------------------------
 
@@ -83,10 +94,8 @@ EOF
 
 show-version() {
   echo "platypus version $VERSION"
-  # shellcheck disable=SC1091  # Dynamically sourced module files - path is constructed at runtime
-  echo "  svn module: $(source "$LIB_DIR/platypus-svn" && echo "$VERSION")"
-  # shellcheck disable=SC1091  # Dynamically sourced module files - path is constructed at runtime
-  echo "  subtree module: $(source "$LIB_DIR/platypus-subtree" && echo "$VERSION")"
+  echo "  svn module: $SVN_VERSION"
+  echo "  subtree module: $SUBTREE_VERSION"
 }
 
 #------------------------------------------------------------------------------
@@ -94,15 +103,11 @@ show-version() {
 #------------------------------------------------------------------------------
 
 command:svn() {
-  # shellcheck disable=SC1091  # Dynamically sourced module file - path is constructed at runtime
-  source "$LIB_DIR/platypus-svn"
-  main "$@"
+  svn:main "$@"
 }
 
 command:subtree() {
-  # shellcheck disable=SC1091  # Dynamically sourced module file - path is constructed at runtime
-  source "$LIB_DIR/platypus-subtree"
-  main "$@"
+  subtree:main "$@"
 }
 
 command:sync() {

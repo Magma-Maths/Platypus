@@ -438,9 +438,9 @@ version() {
 #------------------------------------------------------------------------------
 
 # Initialize an existing directory as a subtree (link to existing upstream)
-# Usage: command:init <prefix> [-r <remote>] [-b <branch>]
+# Usage: subtree:command:init <prefix> [-r <remote>] [-b <branch>]
 # This fetches from the upstream and merges to establish a merge base
-command:init() {
+subtree:command:init() {
   local prefix=""
   local remote=""
   local branch="main"
@@ -530,8 +530,8 @@ command:init() {
 }
 
 # Add a new subtree from a remote repository
-# Usage: command:add <prefix> <repo> [<ref>]
-command:add() {
+# Usage: subtree:command:add <prefix> <repo> [<ref>]
+subtree:command:add() {
   local prefix=""
   local repo=""
   local ref="main"
@@ -605,8 +605,8 @@ command:add() {
 }
 
 # Create a new upstream from an existing directory (export)
-# Usage: command:create <prefix> <upstream> [-b <branch>]
-command:create() {
+# Usage: subtree:command:create <prefix> <upstream> [-b <branch>]
+subtree:command:create() {
   local prefix=""
   local upstream=""
   local branch="main"
@@ -701,8 +701,8 @@ command:create() {
 }
 
 # Pull upstream changes into subtree
-# Usage: command:pull <prefix>
-command:pull() {
+# Usage: subtree:command:pull <prefix>
+subtree:command:pull() {
   local prefix=""
   local squash_opt=""
   
@@ -767,8 +767,8 @@ command:pull() {
 }
 
 # Push subtree changes to upstream
-# Usage: command:push <prefix>
-command:push() {
+# Usage: subtree:command:push <prefix>
+subtree:command:push() {
   local prefix=""
   
   # Parse arguments
@@ -841,8 +841,8 @@ command:push() {
 }
 
 # Sync subtree bidirectionally (pull then push)
-# Usage: command:sync <prefix>
-command:sync() {
+# Usage: subtree:command:sync <prefix>
+subtree:command:sync() {
   local prefix=""
   local squash_opt=""
   
@@ -884,30 +884,30 @@ command:sync() {
     say "[dry-run] Would pull then push '$prefix'"
     say ""
     say "=== Pull phase ==="
-    command:pull "$prefix" $squash_opt
+    subtree:command:pull "$prefix" $squash_opt
     say ""
     say "=== Push phase ==="
-    command:push "$prefix"
+    subtree:command:push "$prefix"
     return 0
   fi
   
   # Step 1: Pull upstream changes
   say "=== Pull phase ==="
-  command:pull "$prefix" $squash_opt
+  subtree:command:pull "$prefix" $squash_opt
   
   say ""
   
   # Step 2: Push local changes
   say "=== Push phase ==="
-  command:push "$prefix"
+  subtree:command:push "$prefix"
   
   say ""
   say "Subtree '$prefix' synced with $remote ($branch)."
 }
 
 # Show status of subtree(s)
-# Usage: command:status [<prefix>]
-command:status() {
+# Usage: subtree:command:status [<prefix>]
+subtree:command:status() {
   local prefix="${1:-}"
   
   ensure-repo-root
@@ -964,8 +964,8 @@ show-subtree-status() {
 }
 
 # List all configured subtrees
-# Usage: command:list
-command:list() {
+# Usage: subtree:command:list
+subtree:command:list() {
   ensure-repo-root
   
   local subtrees
@@ -993,7 +993,7 @@ command:list() {
 # Main:
 #------------------------------------------------------------------------------
 
-main() {
+subtree:main() {
   # Parse global options first using common parser
   common:parse-options "$@"
   eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
@@ -1026,28 +1026,28 @@ main() {
 
   case "$command" in
     init)
-      command:init "$@"
+      subtree:command:init "$@"
       ;;
     add)
-      command:add "$@"
+      subtree:command:add "$@"
       ;;
     create)
-      command:create "$@"
+      subtree:command:create "$@"
       ;;
     pull)
-      command:pull "$@"
+      subtree:command:pull "$@"
       ;;
     push)
-      command:push "$@"
+      subtree:command:push "$@"
       ;;
     sync)
-      command:sync "$@"
+      subtree:command:sync "$@"
       ;;
     status)
-      command:status "$@"
+      subtree:command:status "$@"
       ;;
     list)
-      command:list "$@"
+      subtree:command:list "$@"
       ;;
     help|--help|-h)
       usage
@@ -1062,4 +1062,4 @@ main() {
 # Entry point (when run directly):
 #------------------------------------------------------------------------------
 
-[[ ${BASH_SOURCE[0]} != "$0" ]] || main "$@"
+[[ ${BASH_SOURCE[0]} != "$0" ]] || subtree:main "$@"
