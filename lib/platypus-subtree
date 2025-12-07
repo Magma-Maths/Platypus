@@ -182,6 +182,26 @@ config:list() {
     sort -u
 }
 
+# Assert no configured subtree overlaps with the given prefix (either is a parent
+# or child path). This prevents ambiguous subtree operations.
+subtree:assert-no-overlap() {
+  local prefix=$1
+  ensure-repo-root
+
+  local existing
+  existing=$(config:list)
+
+  while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
+    [[ "$p" == "$prefix" ]] && continue
+
+    # Add trailing slash for path-boundary-safe comparisons
+    if [[ "$p"/ == "$prefix"/* || "$prefix"/ == "$p"/* ]]; then
+      error "Subtree prefix '$prefix' overlaps existing subtree '$p'. Choose a non-overlapping prefix."
+    fi
+  done <<< "$existing"
+}
+
 # Get all config for a subtree as key=value lines
 # Usage: config:get-all <prefix>
 config:get-all() {
@@ -475,6 +495,8 @@ subtree:command:init() {
   if config:exists "$prefix"; then
     error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
+
+  subtree:assert-no-overlap "$prefix"
   
   # Prompt for remote if not provided
   if [[ -z "$remote" ]]; then
@@ -567,6 +589,8 @@ subtree:command:add() {
     error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
   
+  subtree:assert-no-overlap "$prefix"
+
   say "Adding subtree '$prefix' from $repo ($ref)..."
   
   if $dry_run; then
@@ -641,6 +665,8 @@ subtree:command:create() {
     error "Subtree '$prefix' is already configured in $PLATYPUS_SUBTREE_CONFIG."
   fi
   
+  subtree:assert-no-overlap "$prefix"
+
   # Test upstream is accessible
   o "Testing upstream access..."
   if ! git ls-remote "$upstream" &>/dev/null; then
@@ -797,9 +823,31 @@ subtree:command:push() {
   
   say "Pushing '$prefix' to $remote ($branch)..."
   
-  # Build split command
-  # We use --rejoin to create a merge commit marking the split point.
-  # This allows subsequent splits to skip already-processed history.
+  # Fetch upstream to compare tips
+  o "Fetching $remote $branch..."
+  RUN git fetch "$remote" "$branch"
+  local remote_tip
+  remote_tip=$(git rev-parse FETCH_HEAD)
+
+  # Compute current subtree split tip for comparison (no rejoin to avoid touching main)
+  local current_split
+  current_split=$(git subtree split --prefix="$prefix" 2>/dev/null || true)
+  if [[ -z "$current_split" ]]; then
+    error "Failed to compute subtree split for '$prefix'. Is git subtree available?"
+  fi
+
+  # If upstream is not an ancestor, require pull first
+  if ! git merge-base --is-ancestor "$remote_tip" "$current_split" 2>/dev/null; then
+    error "Upstream $remote/$branch has new commits. Run 'platypus subtree pull $prefix' (or sync) first."
+  fi
+
+  # No new changes to push
+  if [[ "$current_split" == "$remote_tip" ]]; then
+    say "No subtree changes to push for '$prefix'; upstream is up to date."
+    return 0
+  fi
+
+  # Build split command (with rejoin for incremental optimization)
   local split_args="--prefix=$prefix --rejoin"
   local temp_branch="platypus-split-$$"
   
