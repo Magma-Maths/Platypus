@@ -48,10 +48,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
 # Configuration:
 #------------------------------------------------------------------------------
 
-# Read version from common (with fallback for standalone sourcing)
-: "${PLATYPUS_SUBTREE_VERSION:=0.0.0}"
 # Read config file name from common (with fallback)
 : "${PLATYPUS_SUBTREE_CONFIG:=.gitsubtrees}"
+
+#------------------------------------------------------------------------------
+# Guard: ensure shared globals are present (enforce single entrypoint)
+#------------------------------------------------------------------------------
+
+subtree:ensure-globals() {
+  ensure:shared-globals
+}
 
 #------------------------------------------------------------------------------
 # Subtree-specific state (quiet_wanted, verbose_wanted, dry_run, debug_wanted
@@ -426,7 +432,7 @@ EOF
 }
 
 version() {
-  echo "platypus-subtree version $PLATYPUS_SUBTREE_VERSION"
+  echo "platypus version ${PLATYPUS_VERSION:-unknown} (subtree module)"
   exit 0
 }
 
@@ -1036,6 +1042,7 @@ subtree:dispatch() {
 #------------------------------------------------------------------------------
 
 subtree:main() {
+  subtree:ensure-globals
   common:dispatch usage version subtree:dispatch "$@"
 }
 

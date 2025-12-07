@@ -12,22 +12,27 @@
 #
 
 #------------------------------------------------------------------------------
-# Version constants (single source of truth):
-#------------------------------------------------------------------------------
-
-# shellcheck disable=SC2034  # Used by other modules via source
-PLATYPUS_VERSION=0.1.0
-# shellcheck disable=SC2034  # Used by other modules via source
-PLATYPUS_SVN_VERSION=0.1.0
-# shellcheck disable=SC2034  # Used by other modules via source
-PLATYPUS_SUBTREE_VERSION=0.1.0
-
-#------------------------------------------------------------------------------
 # Configuration constants:
 #------------------------------------------------------------------------------
 
 # shellcheck disable=SC2034  # Used by other modules via source
 PLATYPUS_SUBTREE_CONFIG=.gitsubtrees
+
+#------------------------------------------------------------------------------
+# Shared guard to ensure globals are loaded (single entrypoint enforcement)
+#------------------------------------------------------------------------------
+
+ensure:shared-globals() {
+  : "${PLATYPUS_VERSION:?Run via platypus (lib/platypus) so shared globals are loaded}"
+  : "${REQUIRED_GIT_VERSION:?Run via platypus to set REQUIRED_GIT_VERSION}"
+  : "${REMOTE:?Run via platypus to set REMOTE}"
+  : "${MAIN:?Run via platypus to set MAIN}"
+  : "${STATE_DIR:?Run via platypus to set STATE_DIR}"
+  : "${CONFLICT_LOG:?Run via platypus to set CONFLICT_LOG}"
+  : "${EXIT_SUCCESS:?Run via platypus to set EXIT_SUCCESS}"
+  : "${EXIT_ERROR:?Run via platypus to set EXIT_ERROR}"
+  : "${EXIT_CONFLICTS:?Run via platypus to set EXIT_CONFLICTS}"
+}
 
 #------------------------------------------------------------------------------
 # Global state variables (shared across modules):

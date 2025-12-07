@@ -24,8 +24,29 @@ set -e
 # Configuration:
 #------------------------------------------------------------------------------
 
-# Read version from common (with fallback)
+# Single Platypus version (authoritative)
 : "${PLATYPUS_VERSION:=0.1.0}"
+export PLATYPUS_VERSION
+
+# Minimum required git version (shared)
+: "${REQUIRED_GIT_VERSION:=2.7.0}"
+export REQUIRED_GIT_VERSION
+
+# Shared defaults (modules can override via env)
+: "${REMOTE:=origin}"
+: "${MAIN:=main}"
+export REMOTE MAIN
+
+# Shared state paths/logs
+: "${STATE_DIR:=.git/platypus/svngit}"
+: "${CONFLICT_LOG:=${STATE_DIR}/conflicts.log}"
+export STATE_DIR CONFLICT_LOG
+
+# Shared exit codes
+: "${EXIT_SUCCESS:=0}"
+: "${EXIT_ERROR:=1}"
+: "${EXIT_CONFLICTS:=2}"
+export EXIT_SUCCESS EXIT_ERROR EXIT_CONFLICTS
 
 # Get the root directory of Platypus
 # If PLATYPUS_ROOT is set (from .rc), use it; otherwise compute from script location
@@ -93,8 +114,6 @@ EOF
 
 show-version() {
   echo "platypus version $PLATYPUS_VERSION"
-  echo "  svn module: $PLATYPUS_SVN_VERSION"
-  echo "  subtree module: $PLATYPUS_SUBTREE_VERSION"
 }
 
 #------------------------------------------------------------------------------

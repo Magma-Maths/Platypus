@@ -587,9 +587,9 @@ setup_with_subtree() {
   rm -rf "$TEST_TMP"
   mkdir -p "$TEST_TMP"
   cd "$TEST_TMP"
-  
-  # Source platypus-subtree for config functions
-  source "$PLATYPUS_ROOT/lib/platypus-subtree"
+
+  # Source top-level entry to load shared globals and modules
+  source "$PLATYPUS_ROOT/lib/platypus"
 }
 
 # Setup with platypus-svn sourced (for internal functions)
@@ -600,7 +600,8 @@ setup_with_svn() {
   rm -rf "$TEST_TMP"
   mkdir -p "$TEST_TMP"
   cd "$TEST_TMP"
-  source "$PLATYPUS_ROOT/lib/platypus-svn"
+  # Source top-level entry to load shared globals and modules
+  source "$PLATYPUS_ROOT/lib/platypus"
 }
 
 #------------------------------------------------------------------------------

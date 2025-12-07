@@ -40,16 +40,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/platypus-common.bash"
 # Configuration defaults:
 #------------------------------------------------------------------------------
 
-# Read version from common (with fallback for standalone sourcing)
-: "${PLATYPUS_SVN_VERSION:=0.0.0}"
-REQUIRED_GIT_VERSION=2.7.0
-
-# Git remote name
-REMOTE="${REMOTE:-origin}"
-
-# Main branch to sync from
-MAIN="${MAIN:-main}"
-
 # Remote branch used as pointer to "last exported origin/main commit"
 # This is NOT main. Moving it does not rewrite main.
 MARKER="${MARKER:-svn-marker}"
@@ -64,16 +54,13 @@ SVN_BRANCH="${SVN_BRANCH:-svn}"
 # Local throwaway branch used for dcommit
 EXPORT_BRANCH="${EXPORT_BRANCH:-svn-export}"
 
-# State directory for --continue/--abort
-STATE_DIR=".git/svngit"
+#------------------------------------------------------------------------------
+# Guard: ensure shared globals are present (enforce single entrypoint)
+#------------------------------------------------------------------------------
 
-# Conflict log file (for automation)
-CONFLICT_LOG="${CONFLICT_LOG:-.git/svngit-conflicts.log}"
-
-# Exit codes for automation
-EXIT_SUCCESS=0
-EXIT_ERROR=1
-EXIT_CONFLICTS=2
+svn:ensure-globals() {
+  ensure:shared-globals
+}
 
 #------------------------------------------------------------------------------
 # SVN-specific state variables:
@@ -87,6 +74,8 @@ abort_mode=false        # Abort and clean up
 TIP=                    # HEAD commit of origin/main
 BASE=                   # Last exported commit (marker position)
 COMMITS=                # List of commits to export
+PLAN_COMMITS=           # Planned commits to export (first-parent, ordered)
+PLAN_COUNT=0            # Count of planned commits
 
 original_branch=        # Branch we started on (for cleanup)
 had_conflicts=false     # Track if any conflicts occurred
@@ -179,7 +168,7 @@ Environment Variables:
   SVN_REMOTE_REF  git-svn tracking ref (default: refs/remotes/git-svn)
   SVN_BRANCH      Local SVN mirror branch (default: svn)
   EXPORT_BRANCH   Temporary svn-export branch (default: svn-export)
-  CONFLICT_LOG    Conflict log file (default: .git/svngit-conflicts.log)
+  CONFLICT_LOG    Conflict log file (default: .git/platypus/svngit/conflicts.log)
 
 Exit Codes:
   0   Success - no conflicts
@@ -216,7 +205,7 @@ Automation example:
 
 # Show version:
 version() {
-  echo "platypus-svn version $PLATYPUS_SVN_VERSION"
+  echo "platypus version ${PLATYPUS_VERSION:-unknown} (svn module)"
   exit 0
 }
 
@@ -232,6 +221,7 @@ state:save() {
   echo "$TIP" > "$STATE_DIR/tip"
   echo "$COMMITS" > "$STATE_DIR/commits-remaining"
   echo "$current_commit" > "$STATE_DIR/current-commit"
+  echo "$had_conflicts" > "$STATE_DIR/had-conflicts"
 }
 
 # Load saved state:
@@ -251,6 +241,9 @@ state:load() {
   if [[ -f "$STATE_DIR/current-commit" ]]; then
     current_commit=$(cat "$STATE_DIR/current-commit")
   fi
+   if [[ -f "$STATE_DIR/had-conflicts" ]]; then
+     had_conflicts=$(cat "$STATE_DIR/had-conflicts")
+   fi
 }
 
 # Clear saved state:
@@ -271,6 +264,20 @@ state:update-commits() {
   echo "$COMMITS" > "$STATE_DIR/commits-remaining"
 }
 
+# Reset in-memory run state (plan + conflict flags)
+state:reset-run() {
+  had_conflicts=false
+  current_commit=
+  PLAN_COMMITS=
+  PLAN_COUNT=0
+  COMMITS=
+}
+
+# Populate COMMITS from the current plan for execution/resume flows
+state:materialize-plan() {
+  COMMITS="$PLAN_COMMITS"
+}
+
 #------------------------------------------------------------------------------
 # Conflict logging (for automation):
 #------------------------------------------------------------------------------
@@ -281,6 +288,7 @@ log-conflict() {
   local type=$2  # "patch", "merge", or "partial"
   local timestamp
   timestamp=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
+  mkdir -p "$(dirname "$CONFLICT_LOG")"
   echo "$timestamp $type $(git:short-hash "$commit") $commit" >> "$CONFLICT_LOG"
   o "Logged conflict: $type $commit"
 }
@@ -290,6 +298,30 @@ add-conflict-note() {
   local source_commit=$1
   local target_commit=${2:-HEAD}
   git notes add -f -m "svngit: conflict during export from $(git:short-hash "$source_commit")" "$target_commit" 2>/dev/null || true
+}
+
+# Mark a conflict in state and attach note/log for tracking
+conflict:mark() {
+  local source_commit=$1
+  local type=$2
+  local target_commit=${3:-HEAD}
+
+  had_conflicts=true
+  log-conflict "$source_commit" "$type"
+  add-conflict-note "$source_commit" "$target_commit"
+}
+
+# Print completion warning/exit code if conflicts occurred
+conflict:report-outcome() {
+  if $had_conflicts; then
+    say ""
+    say "WARNING: Completed with conflicts."
+    say "Files may contain conflict markers (<<<<<<<, =======, >>>>>>>)."
+    say "Commits with conflicts are prefixed with [CONFLICT] in commit messages."
+    say "Conflict log: $CONFLICT_LOG"
+    say "Someone should resolve these in both Git and SVN repositories."
+    exit $EXIT_CONFLICTS
+  fi
 }
 
 #------------------------------------------------------------------------------
@@ -361,6 +393,7 @@ svn:command:abort() {
 svn:command:continue() {
   state:exists || error "No operation in progress to continue."
   
+  state:reset-run
   state:load
   say "Resuming svngit operation..."
   
@@ -369,7 +402,7 @@ svn:command:continue() {
   
   # Continue with remaining commits
   if [[ -n $COMMITS ]]; then
-    sync:export-commits
+    execute:export-plan
   fi
   
   sync:dcommit
@@ -390,165 +423,10 @@ svn:command:continue() {
   
   say "=== Done: resumed and completed export to SVN ==="
   
-  # Show conflict warning and exit with appropriate code
-  if $had_conflicts; then
-    say ""
-    say "WARNING: Completed with conflicts."
-    say "Files may contain conflict markers (<<<<<<<, =======, >>>>>>>)."
-    say "Commits with conflicts are prefixed with [CONFLICT] in commit messages."
-    say "Conflict log: $CONFLICT_LOG"
-    say "Someone should resolve these in both Git and SVN repositories."
-    exit $EXIT_CONFLICTS
-  fi
+  conflict:report-outcome
 }
 
 # Pull latest changes from SVN:
-svn:command:pull() {
-  say "=== platypus svn pull v$PLATYPUS_SVN_VERSION ==="
-  $dry_run && say "[DRY RUN MODE]"
-  $debug_wanted && say "[DEBUG MODE]"
-  
-  # Check environment
-  assert-environment-ok
-  
-  # Remember original branch for cleanup
-  original_branch=$(git:get-current-branch)
-  o "Original branch: $original_branch"
-  
-  # Require clean working tree
-  o "Assert working tree is clean"
-  git:assert-clean-worktree
-  
-  # Step 1: Fetch latest Git state (needed for marker check)
-  sync:fetch
-  
-  # Step 2: Update SVN mirror (the actual pull)
-  sync:update-svn-mirror
-  
-  # Step 3: Ensure marker exists and show status
-  sync:init-marker
-  
-  # Show what commits are available to push
-  local pending_commits pending_count
-  pending_commits=$(git rev-list --first-parent "$BASE..$TIP" 2>/dev/null || true)
-  if [[ -n "$pending_commits" ]]; then
-    pending_count=$(echo "$pending_commits" | wc -l | tr -d ' ')
-    say ""
-    say "SVN mirror updated. $pending_count commit(s) pending to push."
-    say "Run 'platypus svn push' to export them to SVN."
-  else
-    say ""
-    say "SVN mirror updated. No commits pending."
-  fi
-  
-  # Return to original branch
-  if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
-    o "Returning to original branch: $original_branch"
-    RUN git switch "$original_branch"
-  fi
-  
-  # Clear for cleanup trap
-  original_branch=
-  
-  say "=== Done: SVN pull complete ==="
-  return 0
-}
-
-# Push Git commits to SVN:
-svn:command:push() {
-  say "=== platypus svn push v$PLATYPUS_SVN_VERSION ==="
-  $dry_run && say "[DRY RUN MODE]"
-  $debug_wanted && say "[DEBUG MODE]"
-  $push_conflicts && say "[PUSH CONFLICTS MODE]"
-  
-  # Check if there's already an operation in progress
-  if state:exists; then
-    error "An operation is already in progress.
-  Use --continue to resume or --abort to cancel."
-  fi
-  
-  # Check environment
-  assert-environment-ok
-  
-  # Remember original branch for cleanup
-  original_branch=$(git:get-current-branch)
-  o "Original branch: $original_branch"
-  
-  # Require clean working tree
-  o "Assert working tree is clean"
-  git:assert-clean-worktree
-  
-  # Step 1: Fetch latest Git state
-  sync:fetch
-  
-  # Step 2: Update SVN mirror (ensure we have latest SVN state)
-  sync:update-svn-mirror
-  
-  # Step 3: Ensure marker exists
-  sync:init-marker
-  
-  # Step 4: Build commit list
-  if ! sync:build-commit-list; then
-    # Return to original branch
-    if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
-      RUN git switch "$original_branch"
-    fi
-    original_branch=
-    exit 0
-  fi
-  
-  # Step 5: Prepare export branch
-  sync:prepare-export-branch
-  
-  # Step 6: Export commits
-  if ! sync:export-commits; then
-    sync:advance-marker
-    # Return to original branch
-    if [[ $original_branch && $original_branch != "$MAIN" ]]; then
-      RUN git switch "$original_branch"
-    fi
-    original_branch=
-    exit 0
-  fi
-  
-  # Step 7: Push to SVN
-  sync:dcommit
-  
-  # Step 8: Advance marker
-  sync:advance-marker
-  
-  # Step 9: Merge back to main
-  sync:merge-back
-  
-  # Step 10: Return to original branch
-  if [[ $original_branch && $original_branch != "$MAIN" ]]; then
-    o "Returning to original branch: $original_branch"
-    RUN git switch "$original_branch"
-  fi
-  
-  # Clear original_branch so cleanup trap doesn't try to switch again
-  original_branch=
-  
-  say "=== Done: exported $(git:short-hash "$BASE")..$(git:short-hash "$TIP") to SVN ==="
-  
-  # Show conflict warning and exit with appropriate code
-  if $had_conflicts; then
-    say ""
-    say "WARNING: Completed with conflicts."
-    say "Files may contain conflict markers (<<<<<<<, =======, >>>>>>>)."
-    say "Commits with conflicts are prefixed with [CONFLICT] in commit messages."
-    say "Conflict log: $CONFLICT_LOG"
-    say "Someone should resolve these in both Git and SVN repositories."
-    exit $EXIT_CONFLICTS
-  fi
-  
-  return 0
-}
-
-#------------------------------------------------------------------------------
-# Sync helper functions:
-#------------------------------------------------------------------------------
-
 # Fetch latest Git state from remote:
 sync:fetch() {
   # Verify remote exists
@@ -622,20 +500,36 @@ sync:init-marker() {
   o "Marker position: $(git:short-hash "$BASE")"
 }
 
-# Build list of commits to export (first-parent only):
-sync:build-commit-list() {
-  o "Build commit list: first-parent $BASE..$TIP"
+# Export planning helpers (first-parent only):
+plan:build-export-plan() {
+  o "Build export plan: first-parent $BASE..$TIP"
 
-  COMMITS="$(git rev-list --reverse --first-parent "$BASE..$TIP" || true)"
+  PLAN_COMMITS="$(git rev-list --reverse --first-parent "$BASE..$TIP" || true)"
 
-  if [[ -z $COMMITS ]]; then
+  if [[ -n $PLAN_COMMITS ]]; then
+    PLAN_COUNT=$(echo "$PLAN_COMMITS" | wc -l | tr -d ' ')
+  else
+    PLAN_COUNT=0
     say "No new first-parent commits to export ($BASE..$TIP)."
     return 1
   fi
 
-  local count
-  count=$(echo "$COMMITS" | wc -l | tr -d ' ')
-  say "Found $count commit(s) to export."
+  return 0
+}
+
+plan:describe-export-plan() {
+  say "Found $PLAN_COUNT commit(s) to export (first-parent $(git:short-hash "$BASE")..$(git:short-hash "$TIP"))."
+}
+
+# Backwards-compatible wrapper used by existing pipeline
+sync:build-commit-list() {
+  if ! plan:build-export-plan; then
+    COMMITS=""
+    return 1
+  fi
+
+  plan:describe-export-plan
+  COMMITS="$PLAN_COMMITS"
   return 0
 }
 
@@ -675,7 +569,6 @@ sync:export-commit() {
   # Try 2: 3-way merge (with --push-conflicts)
   elif $push_conflicts && git diff --binary "$p1" "$commit" | git apply --3way --index 2>/dev/null; then
     say "  Warning: Applied with conflicts: $(git:short-hash "$commit")"
-    had_conflicts=true
     commit_had_conflict=true
     conflict_type="patch-3way"
   
@@ -684,14 +577,12 @@ sync:export-commit() {
     if git diff --binary "$p1" "$commit" | git apply --reject --index 2>/dev/null; then
       git add -A  # Add partial changes
       say "  Warning: Partially applied (see .rej files): $(git:short-hash "$commit")"
-      had_conflicts=true
       commit_had_conflict=true
       conflict_type="patch-reject"
     else
       # Even reject mode failed, but we're in push-conflicts mode
       git add -A 2>/dev/null || true
       say "  Warning: Failed to apply, continuing anyway: $(git:short-hash "$commit")"
-      had_conflicts=true
       commit_had_conflict=true
       conflict_type="patch-failed"
     fi
@@ -739,8 +630,7 @@ sync:export-commit() {
 
   # Log conflict and add git note if there was a conflict
   if $commit_had_conflict; then
-    log-conflict "$commit" "$conflict_type"
-    add-conflict-note "$commit"
+    conflict:mark "$commit" "$conflict_type"
   fi
 
   say "  Exported: $(git:short-hash "$commit") -> $(git log -1 --pretty=%s "$commit" | head -c 50)"
@@ -751,6 +641,21 @@ sync:export-commit() {
   fi
   
   return 0
+}
+
+# Execute the current export plan (uses COMMITS or PLAN_COMMITS):
+execute:export-plan() {
+  # Prefer materialized COMMITS; fall back to PLAN_COMMITS for convenience
+  if [[ -z $COMMITS && -n $PLAN_COMMITS ]]; then
+    COMMITS="$PLAN_COMMITS"
+  fi
+
+  if [[ -z $COMMITS ]]; then
+    say "No commits to export."
+    return 1
+  fi
+
+  sync:export-commits
 }
 
 # Export all commits in the list:
@@ -829,9 +734,7 @@ sync:merge-back() {
       say "Warning: Merge has conflicts, committing with markers"
       RUN git add -A
       RUN git commit -m "[CONFLICT] Merge SVN into $MAIN" || true
-      had_conflicts=true
-      log-conflict "$TIP" "merge"
-      add-conflict-note "$TIP"
+      conflict:mark "$TIP" "merge"
     else
       err ""
       err "Merge conflict when merging SVN changes back to $MAIN."
@@ -848,6 +751,160 @@ sync:merge-back() {
   RUN git push "$REMOTE" "$MAIN" ||
     error "Failed to push $MAIN. Someone may have pushed first.
   Try: git pull --rebase && git push"
+}
+
+#------------------------------------------------------------------------------
+# Pipelines (orchestrate pull/push sequences):
+#------------------------------------------------------------------------------
+
+pipeline:pull() {
+  # Check environment
+  assert-environment-ok
+  
+  # Remember original branch for cleanup
+  original_branch=$(git:get-current-branch)
+  o "Original branch: $original_branch"
+  
+  # Require clean working tree
+  o "Assert working tree is clean"
+  git:assert-clean-worktree
+  
+  # Step 1: Fetch latest Git state (needed for marker check)
+  sync:fetch
+  
+  # Step 2: Update SVN mirror (the actual pull)
+  sync:update-svn-mirror
+  
+  # Step 3: Ensure marker exists and show status
+  sync:init-marker
+  
+  # Show what commits are available to push
+  local pending_commits pending_count
+  pending_commits=$(git rev-list --first-parent "$BASE..$TIP" 2>/dev/null || true)
+  if [[ -n "$pending_commits" ]]; then
+    pending_count=$(echo "$pending_commits" | wc -l | tr -d ' ')
+    say ""
+    say "SVN mirror updated. $pending_count commit(s) pending to push."
+    say "Run 'platypus svn push' to export them to SVN."
+  else
+    say ""
+    say "SVN mirror updated. No commits pending."
+  fi
+  
+  # Return to original branch
+  if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
+    o "Returning to original branch: $original_branch"
+    RUN git switch "$original_branch"
+  fi
+  
+  # Clear for cleanup trap
+  original_branch=
+  
+  say "=== Done: SVN pull complete ==="
+  return 0
+}
+
+pipeline:push() {
+  # Check environment
+  assert-environment-ok
+  
+  # Remember original branch for cleanup
+  original_branch=$(git:get-current-branch)
+  o "Original branch: $original_branch"
+  
+  # Require clean working tree
+  o "Assert working tree is clean"
+  git:assert-clean-worktree
+  
+  # Step 1: Fetch latest Git state
+  sync:fetch
+  
+  # Step 2: Update SVN mirror (ensure we have latest SVN state)
+  sync:update-svn-mirror
+  
+  # Step 3: Ensure marker exists
+  sync:init-marker
+  
+  # Step 4: Build export plan
+  if ! plan:build-export-plan; then
+    # Return to original branch
+    if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
+      RUN git switch "$original_branch"
+    fi
+    original_branch=
+    exit 0
+  fi
+  plan:describe-export-plan
+  state:materialize-plan
+  
+  # Step 5: Prepare export branch
+  sync:prepare-export-branch
+  
+  # Step 6: Execute export plan
+  if ! execute:export-plan; then
+    sync:advance-marker
+    # Return to original branch
+    if [[ $original_branch && $original_branch != "$MAIN" ]]; then
+      RUN git switch "$original_branch"
+    fi
+    original_branch=
+    exit 0
+  fi
+  
+  # Step 7: Push to SVN
+  sync:dcommit
+  
+  # Step 8: Advance marker
+  sync:advance-marker
+  
+  # Step 9: Merge back to main
+  sync:merge-back
+  
+  # Step 10: Return to original branch
+  if [[ $original_branch && $original_branch != "$MAIN" ]]; then
+    o "Returning to original branch: $original_branch"
+    RUN git switch "$original_branch"
+  fi
+  
+  # Clear original_branch so cleanup trap doesn't try to switch again
+  original_branch=
+  
+  say "=== Done: exported $(git:short-hash "$BASE")..$(git:short-hash "$TIP") to SVN ==="
+  
+  conflict:report-outcome
+  return 0
+}
+
+#------------------------------------------------------------------------------
+# Command functions (pull/push entrypoints):
+#------------------------------------------------------------------------------
+
+# Pull latest changes from SVN:
+svn:command:pull() {
+  say "=== platypus svn pull v${PLATYPUS_VERSION:-unknown} ==="
+  $dry_run && say "[DRY RUN MODE]"
+  $debug_wanted && say "[DEBUG MODE]"
+  
+  state:reset-run
+  pipeline:pull
+}
+
+# Push Git commits to SVN:
+svn:command:push() {
+  say "=== platypus svn push v${PLATYPUS_VERSION:-unknown} ==="
+  $dry_run && say "[DRY RUN MODE]"
+  $debug_wanted && say "[DEBUG MODE]"
+  $push_conflicts && say "[PUSH CONFLICTS MODE]"
+  
+  state:reset-run
+
+  # Check if there's already an operation in progress
+  if state:exists; then
+    error "An operation is already in progress.
+  Use --continue to resume or --abort to cancel."
+  fi
+  
+  pipeline:push
 }
 
 #------------------------------------------------------------------------------
@@ -879,6 +936,8 @@ svn:dispatch() {
 #------------------------------------------------------------------------------
 
 svn:main() {
+  svn:ensure-globals
+
   # Handle SVN-specific flags (--push-conflicts, --continue, --abort) first
   local args=()
   
