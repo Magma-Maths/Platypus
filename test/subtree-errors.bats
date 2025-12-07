@@ -153,3 +153,30 @@ load test_helper
   [[ "$output" == *"not configured"* ]]
 }
 
+@test "subtree pull fails when remote missing from config" {
+  local repo
+  repo=$(create_monorepo)
+  cd "$repo"
+  
+  # Create malformed config (missing remote)
+  git config -f .gitsubtrees subtree.lib/foo.branch main
+  
+  run platypus subtree pull lib/foo
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"No remote configured"* ]]
+}
+
+@test "subtree push fails when branch missing from config" {
+  local repo upstream
+  repo=$(create_monorepo)
+  upstream=$(create_upstream "foo")
+  cd "$repo"
+  
+  # Config with remote but missing branch
+  git config -f .gitsubtrees subtree.lib/foo.remote "$upstream"
+  
+  run platypus subtree push lib/foo
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"branch"* ]] || [[ "$output" == *"Branch"* ]]
+}
+

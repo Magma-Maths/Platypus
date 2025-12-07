@@ -138,7 +138,7 @@ trap cleanup EXIT INT TERM
 #------------------------------------------------------------------------------
 
 # Print usage and exit:
-usage() {
+svn:usage() {
   cat <<'...'
 Usage: platypus svn <command> [options]
 
@@ -203,7 +203,7 @@ Automation example:
 }
 
 # Show version:
-version() {
+svn:version() {
   echo "platypus version ${PLATYPUS_VERSION:-unknown} (svn module)"
   exit 0
 }
@@ -1005,8 +1005,8 @@ svn:main() {
     return 0
   fi
   
-  # Use common dispatch for the rest
-  common:dispatch usage version svn:dispatch "$@"
+  # Use common dispatch for the rest (module-scoped usage/version)
+  common:dispatch svn:usage svn:version svn:dispatch "$@"
 }
 
 #------------------------------------------------------------------------------

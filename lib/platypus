@@ -161,7 +161,7 @@ command:sync() {
 main() {
   if [[ $# -eq 0 ]]; then
     show-help
-    exit 0
+    exit $EXIT_ERROR
   fi
 
   local command=$1

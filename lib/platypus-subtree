@@ -359,7 +359,7 @@ subtree:validate() {
 # Help:
 #------------------------------------------------------------------------------
 
-usage() {
+subtree:usage() {
   cat <<'EOF'
 Usage: platypus subtree <command> [options]
 
@@ -424,7 +424,7 @@ EOF
   exit 0
 }
 
-version() {
+subtree:version() {
   echo "platypus version ${PLATYPUS_VERSION:-unknown} (subtree module)"
   exit 0
 }
@@ -731,7 +731,7 @@ subtree:command:pull() {
   # Get config
   local remote branch
   remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
-  branch=$(config:get "$prefix" branch) || branch="main"
+  branch=$(config:get "$prefix" branch) || error "No branch configured for '$prefix'"
   
   say "Pulling '$prefix' from $remote ($branch)..."
   
@@ -792,7 +792,7 @@ subtree:command:push() {
   # Get config
   local remote branch splitSha
   remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
-  branch=$(config:get "$prefix" branch) || branch="main"
+  branch=$(config:get "$prefix" branch) || error "No branch configured for '$prefix'"
   splitSha=$(config:get "$prefix" splitSha 2>/dev/null || echo "")
   
   say "Pushing '$prefix' to $remote ($branch)..."
@@ -871,7 +871,7 @@ subtree:command:sync() {
   # Get config for display
   local remote branch
   remote=$(config:get "$prefix" remote) || error "No remote configured for '$prefix'"
-  branch=$(config:get "$prefix" branch) || branch="main"
+  branch=$(config:get "$prefix" branch) || error "No branch configured for '$prefix'"
   
   say "Syncing '$prefix' with $remote ($branch)..."
   say ""
@@ -936,27 +936,63 @@ show-subtree-status() {
   local prefix=$1
   
   local remote branch upstream preMergeParent splitSha
-  remote=$(config:get "$prefix" remote 2>/dev/null || echo "(not set)")
-  branch=$(config:get "$prefix" branch 2>/dev/null || echo "(not set)")
+  remote=$(config:get "$prefix" remote 2>/dev/null || echo "")
+  branch=$(config:get "$prefix" branch 2>/dev/null || echo "")
   upstream=$(config:get "$prefix" upstream 2>/dev/null || echo "(not set)")
   preMergeParent=$(config:get "$prefix" preMergeParent 2>/dev/null || echo "(not set)")
   splitSha=$(config:get "$prefix" splitSha 2>/dev/null || echo "(not set)")
   
   say "Subtree: $prefix"
-  say "  Remote:          $remote"
-  say "  Branch:          $branch"
+  say "  Remote:          ${remote:-"(not set)"}"
+  say "  Branch:          ${branch:-"(not set)"}"
   say "  Upstream:        ${upstream:0:12}..."
   say "  PreMergeParent:  ${preMergeParent:0:12}..."
   say "  SplitSHA:        ${splitSha:0:12}..."
+  
+  [[ -n "$remote" ]] || { say "  Status:   MISSING (remote not configured)"; return; }
+  [[ -n "$branch" ]] || { say "  Status:   MISSING (branch not configured)"; return; }
   
   # Check if directory exists
   if [[ ! -d "$REPO_ROOT/$prefix" ]]; then
     say "  Status:   MISSING (directory does not exist)"
     return
   fi
-  
-  # Could add ahead/behind count here with git rev-list
-  say "  Status:   OK"
+
+  # Refresh remote tip; if fetch fails, report and continue
+  local remote_tip
+  if ! RUN git fetch "$remote" "$branch"; then
+    say "  Status:   ERROR fetching $remote ($branch)"
+    return
+  fi
+  remote_tip=$(git rev-parse FETCH_HEAD 2>/dev/null || true)
+  if [[ -z "$remote_tip" ]]; then
+    say "  Status:   ERROR determining remote tip for $remote ($branch)"
+    return
+  fi
+
+  # Compute local split for subtree
+  local local_split
+  local_split=$(git subtree split --prefix="$prefix" 2>/dev/null || true)
+  if [[ -z "$local_split" ]]; then
+    say "  Status:   ERROR computing subtree split (is git subtree available?)"
+    return
+  fi
+
+  # Compare ancestry to determine ahead/behind/diverged
+  local counts behind ahead
+  counts=$(git rev-list --left-right --count "$remote_tip...$local_split" 2>/dev/null || echo "0 0")
+  behind=${counts%% *}
+  ahead=${counts##* }
+
+  if [[ ${behind:-0} -eq 0 && ${ahead:-0} -eq 0 ]]; then
+    say "  Status:   up-to-date"
+  elif [[ ${behind:-0} -eq 0 ]]; then
+    say "  Status:   AHEAD by ${ahead:-0}"
+  elif [[ ${ahead:-0} -eq 0 ]]; then
+    say "  Status:   BEHIND by ${behind:-0}"
+  else
+    say "  Status:   DIVERGED (ahead ${ahead:-0}, behind ${behind:-0})"
+  fi
 }
 
 # List all configured subtrees
@@ -1036,7 +1072,7 @@ subtree:dispatch() {
 
 subtree:main() {
   subtree:ensure-globals
-  common:dispatch usage version subtree:dispatch "$@"
+  common:dispatch subtree:usage subtree:version subtree:dispatch "$@"
 }
 
 #------------------------------------------------------------------------------

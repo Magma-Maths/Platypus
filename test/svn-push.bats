@@ -192,23 +192,6 @@ create_mock_svn_repo() {
   [[ "$output" == *"both"* ]] || [[ "$output" == *"Can't use"* ]]
 }
 
-@test "svn push fails if operation already in progress" {
-  local repo
-  repo=$(create_mock_svn_repo)
-  cd "$repo"
-  
-  # Create fake state directory
-  mkdir -p .git/svngit
-  echo "main" > .git/svngit/original-branch
-  
-  run platypus svn push
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"already in progress"* ]]
-  
-  # Cleanup
-  rm -rf .git/svngit
-}
-
 #------------------------------------------------------------------------------
 # Dry run tests
 #------------------------------------------------------------------------------

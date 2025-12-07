@@ -42,13 +42,19 @@ load test_helper
   [[ "$output" =~ [0-9]+\.[0-9]+ ]]
 }
 
+@test "platypus subtree --version shows subtree module version" {
+  run platypus subtree --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"(subtree module)"* ]]
+}
+
 #------------------------------------------------------------------------------
 # Subcommand routing
 #------------------------------------------------------------------------------
 
 @test "platypus with no args shows usage" {
   run platypus
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   [[ "$output" == *"usage"* ]] || [[ "$output" == *"Usage"* ]]
 }
 
@@ -67,6 +73,13 @@ load test_helper
   run platypus subtree --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"subtree"* ]]
+}
+
+@test "platypus svn --help shows svn module usage (not top-level)" {
+  run platypus svn --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: platypus svn"* ]]
+  [[ "$output" != *"Usage: platypus <command>"* ]]
 }
 
 @test "platypus subtree list works" {
