@@ -18,9 +18,8 @@
 # that records the last origin/main commit successfully exported to SVN.
 #
 # Usage:
-#   platypus svn [options]
-#   ./lib/platypus-svn.sh [options]   # Can also run directly
-#
+#   platypus svn [options]   # Run via top-level platypus driver
+# 
 
 # ShellCheck: disable SC2034,SC2154 (variables used via sourced platypus-common.bash)
 # Many variables here are used indirectly via dynamic references or exported
@@ -932,16 +931,12 @@ svn:dispatch() {
 }
 
 #------------------------------------------------------------------------------
-# Main function:
+# SVN-specific option parsing:
 #------------------------------------------------------------------------------
 
-svn:main() {
-  svn:ensure-globals
+svn:parse-specific-options() {
+  svn_specific_args=()
 
-  # Handle SVN-specific flags (--push-conflicts, --continue, --abort) first
-  local args=()
-  
-  # First pass: extract SVN-specific options
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --push-conflicts)
@@ -956,15 +951,30 @@ svn:main() {
         abort_mode=true
         shift
         ;;
+      --)
+        shift
+        svn_specific_args+=("$@")
+        break
+        ;;
       *)
-        args+=("$1")
+        svn_specific_args+=("$1")
         shift
         ;;
     esac
   done
-  
+}
+
+#------------------------------------------------------------------------------
+# Main function:
+#------------------------------------------------------------------------------
+
+svn:main() {
+  svn:ensure-globals
+
+  svn:parse-specific-options "$@"
+
   # Parse common options to set verbose_wanted, quiet_wanted, debug_wanted
-  common:parse-options "${args[@]}"
+  common:parse-options "${svn_specific_args[@]}"
   eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
   
   # Verbose implies not quiet
@@ -986,16 +996,16 @@ svn:main() {
   # Handle --abort early (no subcommand needed)
   if $abort_mode; then
     svn:command:abort
-    exit 0
+    return 0
   fi
 
   # Handle --continue early (no subcommand needed)
   if $continue_mode; then
     svn:command:continue
-    exit 0
+    return 0
   fi
   
-  # Use common dispatch for the rest (it will parse again, but that's harmless)
+  # Use common dispatch for the rest
   common:dispatch usage version svn:dispatch "$@"
 }
 
@@ -1003,4 +1013,3 @@ svn:main() {
 # Entry point:
 #------------------------------------------------------------------------------
 
-[[ ${BASH_SOURCE[0]} != "$0" ]] || svn:main "$@"
