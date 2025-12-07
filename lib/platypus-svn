@@ -95,7 +95,7 @@ cleanup() {
   fi
 
   # Get current branch (might be on export branch)
-  current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+  current_branch=$(git:get-current-branch)
 
   # If we're on the export branch, switch away first
   if [[ $current_branch == "$EXPORT_BRANCH" ]]; then
@@ -496,6 +496,18 @@ sync:init-marker() {
     error "Stale marker detected"
   fi
 
+  # Also require marker to be on the first-parent path of MAIN to avoid replaying
+  # commits after a rewritten or merged history.
+  if ! git rev-list --first-parent "$TIP" | grep -q "$(git rev-parse "$BASE")"; then
+    err ""
+    err "Marker '$MARKER' ($(git:short-hash "$BASE")) is not on the first-parent path of $REMOTE/$MAIN."
+    err "History may have been rewritten or the marker moved off the mainline."
+    err ""
+    err "To reset marker to current merge-base:"
+    err "  git push $REMOTE \$(git merge-base $REMOTE/$MAIN $SVN_BRANCH):refs/heads/$MARKER --force"
+    error "Stale marker detected"
+  fi
+
   o "Marker position: $(git:short-hash "$BASE")"
 }
 
@@ -841,7 +853,7 @@ pipeline:push() {
   
   # Step 6: Execute export plan
   if ! execute:export-plan; then
-    sync:advance-marker
+    say "No commits exported; leaving marker at $(git:short-hash "$BASE")."
     # Return to original branch
     if [[ $original_branch && $original_branch != "$MAIN" ]]; then
       RUN git switch "$original_branch"
