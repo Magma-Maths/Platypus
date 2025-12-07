@@ -76,7 +76,7 @@ clone_repo() {
   git add COMMANDS.md
   git commit -m "commands baseline" >/dev/null
   
-  echo "HOOK_DRIFT" >> COMMANDS.md
+  perl -0pi -e 's/Usage: platypus/Usage: platypus HOOK_DRIFT/' COMMANDS.md
   git add COMMANDS.md
   
   cat > .git/hooks/pre-commit <<'EOF'
