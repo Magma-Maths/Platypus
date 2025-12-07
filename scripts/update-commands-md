@@ -10,6 +10,10 @@ CMD_MD="$ROOT/COMMANDS.md"
 # You can override PLATYPUS_CMD in the environment if needed
 PLATYPUS_CMD="${PLATYPUS_CMD:-$ROOT/lib/platypus}"
 
+# Temp files used by update_block; kept global so EXIT trap sees them even after function returns
+TMP_IN=""
+TMP_OUT=""
+
 # Helper: replace the content between BEGIN/END markers in $CMD_MD
 # Arguments:
 #   1: marker base name, e.g. "platypus-svn-help"
@@ -21,17 +25,17 @@ update_block() {
   local generator_str="${generator_cmd[*]}"
 
   # Use temp files and only replace the target on success to avoid truncation
-  local tmp_in tmp_out
-  tmp_in=$(mktemp "${CMD_MD}.in.XXXX")
-  tmp_out=$(mktemp "${CMD_MD}.out.XXXX")
-  trap 'rm -f "$tmp_in" "$tmp_out"' EXIT
+  TMP_IN=$(mktemp "${CMD_MD}.in.XXXX")
+  TMP_OUT=$(mktemp "${CMD_MD}.out.XXXX")
+  trap 'rm -f "$TMP_IN" "$TMP_OUT"' EXIT
 
   # Run the command and capture help text
   local help_text
-  help_text="$("$@" 2>&1)"
+  # Ensure help runs without inherited PLATYPUS_ROOT to let the script self-resolve paths
+  help_text="$(PLATYPUS_ROOT="" "$@" 2>&1)"
 
   # Work on a temp copy so we can do multiple blocks in one run
-  cp "$CMD_MD" "$tmp_in"
+  cp "$CMD_MD" "$TMP_IN"
 
   # Use Perl to replace the text between markers.
   # Format help text as a bash code block (like other sections in COMMANDS.md)
@@ -58,10 +62,10 @@ update_block() {
     my $after  = substr($_, $idx_end);
 
     $_ = $before . "\n" . $help . "\n" . $after;
-  ' "$marker" "$tmp_in" <<< "$help_text" > "$tmp_out"
+  ' "$marker" "$TMP_IN" <<< "$help_text" > "$TMP_OUT"
 
-  mv "$tmp_out" "$CMD_MD"
-  rm -f "$tmp_in"
+  mv "$TMP_OUT" "$CMD_MD"
+  rm -f "$TMP_IN"
   trap - EXIT
 }
 
