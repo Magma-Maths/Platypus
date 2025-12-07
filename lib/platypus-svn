@@ -922,7 +922,7 @@ svn:dispatch() {
       svn:command:push "$@"
       ;;
     help|--help|-h)
-      usage
+      svn:usage
       ;;
     *)
       error "Unknown svn command: $cmd. Use 'platypus svn --help' for usage."

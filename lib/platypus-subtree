@@ -1058,7 +1058,7 @@ subtree:dispatch() {
       subtree:command:list "$@"
       ;;
     help|--help|-h)
-      usage
+      subtree:usage
       ;;
     *)
       error "Unknown subtree command: $cmd. Use 'platypus subtree --help' for usage."
