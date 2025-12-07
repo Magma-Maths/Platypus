@@ -76,7 +76,7 @@ clone_repo() {
   git add COMMANDS.md
   git commit -m "commands baseline" >/dev/null
   
-  perl -0pi -e 's/Usage: platypus/Usage: platypus HOOK_DRIFT/' COMMANDS.md
+  echo "HOOK_DRIFT" >> COMMANDS.md
   git add COMMANDS.md
   
   cat > .git/hooks/pre-commit <<'EOF'
@@ -85,7 +85,7 @@ clone_repo() {
 EOF
   chmod +x .git/hooks/pre-commit
   
-  run git commit --allow-empty -m "attempt commit with drift"
+  run git commit -m "attempt commit with drift"
   [ "$status" -ne 0 ]
   
   ./scripts/update-commands-md
