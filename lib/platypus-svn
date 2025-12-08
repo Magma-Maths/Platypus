@@ -372,6 +372,12 @@ svn:command:abort() {
   state:load
   say "Aborting svngit operation..."
   
+  # Abort any in-progress rebase first (from dcommit race condition)
+  if git:rebase-in-progress; then
+    say "Aborting in-progress rebase..."
+    git rebase --abort 2>/dev/null || true
+  fi
+  
   # Switch away from export branch if needed
   local current_branch
   current_branch=$(git:get-current-branch)
@@ -395,6 +401,20 @@ svn:command:continue() {
   state:reset-run
   state:load
   say "Resuming svngit operation..."
+  $dry_run && say "[DRY RUN MODE]"
+  
+  # Check if we're resuming from a dcommit race condition (mid-rebase state)
+  if git:rebase-in-progress; then
+    say "Completing rebase from dcommit race condition..."
+    # User should have resolved conflicts and staged them
+    if ! $dry_run && git diff --quiet --cached 2>/dev/null; then
+      error "Rebase in progress but no staged changes. Please resolve conflicts, stage them, and try again."
+    fi
+    
+    # Complete the rebase - add conflicts for any remaining commits
+    git:complete-rebase-with-conflicts
+    $dry_run || say "Rebase completed."
+  fi
   
   # User should have resolved and committed
   git:assert-clean-worktree
@@ -692,6 +712,29 @@ sync:export-commits() {
   return 0
 }
 
+# Check if we're in the middle of a rebase:
+git:rebase-in-progress() {
+  local git_dir
+  git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
+  [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]
+}
+
+# Complete an in-progress rebase by adding conflicts and continuing:
+git:complete-rebase-with-conflicts() {
+  if $dry_run; then
+    say "[dry-run] Would complete rebase with conflict markers"
+    return 0
+  fi
+  
+  while git:rebase-in-progress; do
+    RUN git add -A
+    # rebase --continue needs the index staged; if it fails, try to skip
+    if ! GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+      git rebase --skip 2>/dev/null || break
+    fi
+  done
+}
+
 # Push commits to SVN via dcommit:
 sync:dcommit() {
   if ! git rev-parse --verify -q HEAD >/dev/null; then
@@ -706,8 +749,36 @@ sync:dcommit() {
 
   say "Pushing to SVN..."
   o "git svn dcommit"
-  RUN git svn dcommit ||
-    error "git svn dcommit failed. Check SVN permissions and connectivity."
+  if ! git svn dcommit; then
+    # Check if dcommit failed due to race condition (leaves us in rebase state)
+    if git:rebase-in-progress; then
+      if $push_conflicts; then
+        say "Warning: SVN race condition, resolving with conflict markers"
+        git:complete-rebase-with-conflicts
+        conflict:mark HEAD "dcommit-race"
+        say "Retrying dcommit..."
+        RUN git svn dcommit ||
+          error "git svn dcommit still failed after resolving rebase."
+      else
+        state:save
+        err ""
+        err "SVN dcommit failed: someone else committed to SVN (race condition)."
+        err "You are in a rebase state with conflicts."
+        err ""
+        err "To resolve manually:"
+        err "  1. Fix conflicts: git status"
+        err "  2. Stage fixes: git add <files>"
+        err "  3. Continue rebase: git rebase --continue"
+        err "  4. Resume: platypus svn push --continue"
+        err ""
+        err "Or with conflict markers: platypus svn push --push-conflicts"
+        err "Or abort: platypus svn push --abort"
+        error "git svn dcommit failed due to SVN race condition."
+      fi
+    else
+      error "git svn dcommit failed. Check SVN permissions and connectivity."
+    fi
+  fi
 
   # Refresh SVN mirror after dcommit
   o "Refresh SVN mirror"
