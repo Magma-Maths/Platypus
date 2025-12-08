@@ -122,3 +122,19 @@ create_mock_svn_repo() {
   [[ "$output" == *"+ subtree:usage"* ]] || [[ "$output" == *"+ usage"* ]] || [[ "$output" == *"+ platypus"* ]]
 }
 
+#------------------------------------------------------------------------------
+# Mutually exclusive options
+#------------------------------------------------------------------------------
+
+@test "svn --continue --push-conflicts produces error" {
+  run platypus svn --continue --push-conflicts
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Can't use both --continue and --push-conflicts"* ]]
+}
+
+@test "svn --continue --abort produces error" {
+  run platypus svn --continue --abort
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Can't use both --continue and --abort"* ]]
+}
+

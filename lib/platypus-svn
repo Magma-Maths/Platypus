@@ -1075,6 +1075,14 @@ svn:main() {
   if $continue_mode && $abort_mode; then
     error "Can't use both --continue and --abort."
   fi
+  
+  # Can't use both --continue and --push-conflicts
+  # --continue means "I've manually resolved", --push-conflicts means "auto-resolve"
+  if $continue_mode && $push_conflicts; then
+    error "Can't use both --continue and --push-conflicts.
+  Use --continue after manually resolving conflicts.
+  Use --push-conflicts for automatic resolution with conflict markers."
+  fi
 
   # Handle --abort early (no subcommand needed)
   if $abort_mode; then
