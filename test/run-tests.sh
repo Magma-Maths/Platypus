@@ -268,6 +268,11 @@ run_tests() {
     bats_args+=(-j "$BATS_JOBS")
   fi
 
+  # Enable timing output by default; allow opt-out via BATS_ENABLE_TIMING=0
+  if [[ "${BATS_ENABLE_TIMING:-1}" != "0" ]]; then
+    bats_args+=(--timing)
+  fi
+
   if bats "${bats_args[@]}" test/; then
     success "All tests passed"
     return 0

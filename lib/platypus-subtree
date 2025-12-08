@@ -237,6 +237,12 @@ config:update-and-amend() {
   RUN git commit --amend --no-edit
 }
 
+# Check if a git ref is valid (non-empty and resolvable)
+# Usage: ref:is-valid <ref>
+ref:is-valid() {
+  [[ -n "$1" ]] && git rev-parse "$1" &>/dev/null
+}
+
 #------------------------------------------------------------------------------
 # Subtree helper functions:
 #------------------------------------------------------------------------------
@@ -830,11 +836,33 @@ subtree:command:push() {
   remote_tip=$(git rev-parse FETCH_HEAD)
 
   # Compute current subtree split tip for comparison (no rejoin to avoid touching main)
-  local current_split
-  current_split=$(git subtree split --prefix="$prefix" 2>/dev/null || true)
-  if [[ -z "$current_split" ]]; then
-    error "Failed to compute subtree split for '$prefix'. Is git subtree available?"
+  # Strategy: cached -> incremental -> full split
+  local preMergeParent_cfg current_split=""
+  preMergeParent_cfg=$(config:get "$prefix" preMergeParent 2>/dev/null || echo "")
+
+  # Fast path: reuse cached splitSha if no commits touched the prefix
+  if ref:is-valid "$splitSha" && ref:is-valid "$preMergeParent_cfg"; then
+    local revlist_output
+    if revlist_output=$(git rev-list "$preMergeParent_cfg"..HEAD -- "$prefix" 2>/dev/null) \
+       && [[ -z "$revlist_output" ]]; then
+      o "No changes to $prefix since last sync; using cached splitSha"
+      current_split="$splitSha"
+    fi
   fi
+
+  # Incremental path: use --onto for faster split
+  if [[ -z "$current_split" ]] && ref:is-valid "$splitSha"; then
+    o "Computing incremental split using --onto..."
+    current_split=$(git subtree split --prefix="$prefix" --onto="$splitSha" 2>/dev/null || true)
+  fi
+
+  # Fallback: full split
+  if [[ -z "$current_split" ]]; then
+    o "Computing full subtree split..."
+    current_split=$(git subtree split --prefix="$prefix" 2>/dev/null || true)
+  fi
+
+  [[ -n "$current_split" ]] || error "Failed to compute subtree split for '$prefix'. Is git subtree available?"
 
   # If upstream is not an ancestor, require pull first
   if ! git merge-base --is-ancestor "$remote_tip" "$current_split" 2>/dev/null; then
