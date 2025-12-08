@@ -622,8 +622,8 @@ platypus svn pull
 ```
 
 **What it does:**
-1. Fetches from the Git remote (`origin`)
-2. Updates the SVN mirror branch using `git svn rebase`
+1. Fetches latest state from the Git remote (for marker tracking)
+2. Pulls latest SVN changes using `git svn rebase`
 3. Reports how many commits are pending to push
 
 **Before:**
@@ -764,8 +764,28 @@ platypus svn push
 #   3. Force through: platypus svn push --push-conflicts
 ```
 
+**SVN race condition:**
+
+If someone else commits to SVN while you're pushing, `git svn dcommit` will fail
+and leave you in a rebase state with conflicts:
+```bash
+platypus svn push
+# SVN dcommit failed: someone else committed to SVN (race condition).
+# You are now in a rebase state with conflicts.
+# Options:
+#   1. Resolve manually:
+#      git status                      # See conflicted files
+#      # ... fix conflicts ...
+#      git add <files>                 # Stage fixes
+#      git rebase --continue           # Complete rebase
+#      platypus svn push --continue    # Resume push
+#   2. Abort: platypus svn push --abort
+#   3. Force through: platypus svn push --push-conflicts
+```
+
 The `--push-conflicts` option will:
 - Apply patches with conflict markers where needed
+- Automatically resolve dcommit race conditions by adding conflicts and continuing
 - Prefix commit messages with `[CONFLICT]`
 - Log conflicts to `.git/svngit-conflicts.log`
 - Exit with code 2 (success with conflicts)
