@@ -608,6 +608,18 @@ setup_with_svn() {
 # Docker SVN server helpers (for integration tests)
 #------------------------------------------------------------------------------
 
+# Check if svn CLI is available
+svn_available() {
+  command -v svn &>/dev/null
+}
+
+# Skip test if svn CLI is not available
+skip_if_no_svn() {
+  if ! svn_available; then
+    skip "svn command not available"
+  fi
+}
+
 # Docker compose file location
 DOCKER_SVN_COMPOSE="$TEST_DIR/docker/svn-server/docker-compose.yml"
 
@@ -730,6 +742,7 @@ setup_git_svn_repo() {
 # Note: Call this in setup() for tests that need Docker SVN
 setup_docker_svn() {
   skip_if_no_docker
+  skip_if_no_svn
   
   # Standard setup
   rm -rf "$TEST_TMP"
