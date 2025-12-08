@@ -64,6 +64,7 @@ EOF
   export GIT_WRAPPER_MODE="$mode"
 }
 
+# bats test_tags=docker
 @test "svn pull aborts cleanly when git svn rebase fails" {
   local setup svn_url git_repo
   setup=$(create_svn_failure_fixture "rebase-fail-pull")
@@ -84,6 +85,7 @@ EOF
   [ "$marker" = "$(git rev-parse main)" ]
 }
 
+# bats test_tags=docker
 @test "svn push stops before marker advance when dcommit fails" {
   local setup svn_url git_repo before_marker after_marker rev_before rev_after
   setup=$(create_svn_failure_fixture "dcommit-fail")

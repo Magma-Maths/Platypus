@@ -37,6 +37,7 @@ create_svn_env_fixture() {
   echo "$svn_url|$git_repo|$remote"
 }
 
+# bats test_tags=docker
 @test "svn push respects REMOTE and MAIN overrides" {
   local setup svn_url git_repo remote marker_before marker_after rev_before rev_after
   setup=$(create_svn_env_fixture "env-remote-main")
@@ -71,6 +72,7 @@ create_svn_env_fixture() {
   [ "$rev_after" -gt "$rev_before" ]
 }
 
+# bats test_tags=docker
 @test "svn pull uses custom SVN_REMOTE_REF and SVN_BRANCH" {
   local setup svn_url git_repo remote rev_before rev_after
   setup=$(create_svn_env_fixture "env-svn-ref")

@@ -43,6 +43,7 @@ svn_rev_count() {
   svn log "$url" --quiet | grep -c "^r"
 }
 
+# bats test_tags=docker
 @test "empty commit is skipped but marker advances" {
   local setup svn_url git_repo before_rev after_rev marker_before marker_after
   setup=$(create_svn_shape_fixture "empty-commit")
@@ -68,6 +69,7 @@ svn_rev_count() {
   [ "$after_rev" -eq "$before_rev" ]
 }
 
+# bats test_tags=docker
 @test "merge commit with only subtree changes pushes cleanly" {
   local setup svn_url git_repo rev_before rev_after
   setup=$(create_svn_shape_fixture "subtree-only-merge")
@@ -98,6 +100,7 @@ svn_rev_count() {
   [ "$rev_after" -gt "$rev_before" ]
 }
 
+# bats test_tags=docker
 @test "merge commit with subtree and non-subtree changes exports non-subtree diff" {
   local setup svn_url git_repo rev_before rev_after
   setup=$(create_svn_shape_fixture "mixed-merge")
@@ -135,6 +138,7 @@ svn_rev_count() {
   grep -q "root change" "$svn_checkout/root.txt"
 }
 
+# bats test_tags=docker
 @test "octopus merge on first-parent path pushes successfully" {
   local setup svn_url git_repo rev_before rev_after
   setup=$(create_svn_shape_fixture "octopus-merge")

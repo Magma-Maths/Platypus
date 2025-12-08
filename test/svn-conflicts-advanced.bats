@@ -39,6 +39,7 @@ create_svn_conflict_fixture() {
 
 conflict_log_path=".git/platypus/svngit/conflicts.log"
 
+# bats test_tags=docker
 @test "--push-conflicts logs multiple conflicted commits" {
   local setup svn_url git_repo rev_before rev_after
   setup=$(create_svn_conflict_fixture "push-conflicts-multi")
@@ -77,6 +78,7 @@ conflict_log_path=".git/platypus/svngit/conflicts.log"
   fi
 }
 
+# bats test_tags=docker
 @test "--continue after manual resolution uses resolved content" {
   local setup svn_url git_repo marker_before marker_after
   setup=$(create_svn_conflict_fixture "continue-after-resolution")

@@ -51,6 +51,7 @@ create_svn_fixture() {
   echo "$svn_url|$git_repo"
 }
 
+# bats test_tags=docker
 @test "svn push is idempotent when no new commits" {
   local setup svn_url git_repo before_revs after_revs initial_marker after_marker
   setup=$(create_svn_fixture "idempotent-push")
@@ -79,6 +80,7 @@ create_svn_fixture() {
   [ "$before_revs" -eq "$after_revs" ]
 }
 
+# bats test_tags=docker
 @test "svn pull is idempotent when no new SVN revisions" {
   local setup svn_url git_repo before_rev after_rev before_tip after_tip
   setup=$(create_svn_fixture "idempotent-pull")
