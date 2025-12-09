@@ -85,58 +85,42 @@ current_commit=         # Current commit being processed (for state save)
 # Cleanup and signal handling:
 #------------------------------------------------------------------------------
 
+
 # Cleanup function called on exit or interrupt:
 cleanup() {
   local exit_code=${1:-$?}
-  local current_branch return_branch
-
-  # Prefer the branch captured by pipeline:prepare (or any saved state) for cleanup.
-  return_branch=$original_branch
-  if [[ -z $return_branch && -f "$STATE_DIR/original-branch" ]]; then
-    return_branch=$(cat "$STATE_DIR/original-branch" 2>/dev/null || true)
-  fi
-
-  # Prevent double cleanup (e.g., ERR + EXIT)
-  if $cleanup_invoked; then
+  
+  # Prevent double cleanup or cleanup during continue/abort command execution
+  if $cleanup_invoked || $continue_mode || $abort_mode; then
     exit "$exit_code"
   fi
   cleanup_invoked=true
 
-  # Don't run cleanup if we're in continue/abort mode (they handle their own cleanup)
-  if $continue_mode || $abort_mode; then
-    exit "$exit_code"
+  # 1. Restore Branch
+  # Determine target: Memory var -> Disk state -> Default to SVN branch
+  local target="${original_branch:-$(cat "$STATE_DIR/original-branch" 2>/dev/null)}"
+  target="${target:-$SVN_BRANCH}"
+  
+  local current
+  current=$(git:get-current-branch)
+
+  # Switch if we are stuck on the temp branch OR need to restore the original branch
+  if [[ "$current" == "$EXPORT_BRANCH" ]] || [[ "$current" != "$target" ]]; then
+    git switch "$target" 2>/dev/null || git switch "$SVN_BRANCH" 2>/dev/null || true
   fi
 
-  # Get current branch (might be on export branch)
-  current_branch=$(git:get-current-branch)
-
-  # If we're on the export branch, switch away first
-  if [[ $current_branch == "$EXPORT_BRANCH" ]]; then
-    if [[ $return_branch ]]; then
-      git switch "$return_branch" 2>/dev/null || git switch "$SVN_BRANCH" 2>/dev/null || true
-    else
-      git switch "$SVN_BRANCH" 2>/dev/null || true
-    fi
-  elif [[ $return_branch ]]; then
-    # Restore original branch if we changed it
-    git switch "$return_branch" 2>/dev/null || true
-  fi
-
-  # On success: delete the temporary export branch and state
-  # On error: leave export branch for inspection and inform the user
+  # 2. Handle Artifacts (State & Export Branch)
   if [[ $exit_code -eq 0 ]]; then
+    # Success: Clean sweep
     git branch -D "$EXPORT_BRANCH" 2>/dev/null || true
     state:clear
   else
-    if git branch --list "$EXPORT_BRANCH" | grep -q .; then
-      err ""
-      err "Export branch '$EXPORT_BRANCH' has been left for inspection."
-      err "To clean up manually:  git branch -D $EXPORT_BRANCH"
+    # Failure: Report artifacts for debugging/resuming
+    if git rev-parse --verify -q "$EXPORT_BRANCH" >/dev/null; then
+       err "" "Export branch '$EXPORT_BRANCH' left for inspection (delete with 'git branch -D')."
     fi
     if state:exists; then
-      err ""
-      err "Operation state saved. To resume after fixing: platypus svn export --continue"
-      err "To abort and clean up: platypus svn export --abort"
+       err "" "State saved. Resume: 'platypus svn export --continue' or Abort: '--abort'"
     fi
   fi
 
