@@ -5,7 +5,9 @@ set -euo pipefail
 # Resolve repo root as the parent of this scripts/ directory
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-CMD_MD="$ROOT/COMMANDS.md"
+DOC_PLATYPUS="$ROOT/docs/platypus.md"
+DOC_SUBTREE="$ROOT/docs/subtree.md"
+DOC_SVN="$ROOT/docs/svn.md"
 
 # You can override PLATYPUS_CMD in the environment if needed
 PLATYPUS_CMD="${PLATYPUS_CMD:-$ROOT/lib/platypus}"
@@ -14,19 +16,22 @@ PLATYPUS_CMD="${PLATYPUS_CMD:-$ROOT/lib/platypus}"
 TMP_IN=""
 TMP_OUT=""
 
-# Helper: replace the content between BEGIN/END markers in $CMD_MD
+# Helper: replace the content between BEGIN/END markers in a target file
 # Arguments:
-#   1: marker base name, e.g. "platypus-svn-help"
-#   2..: command to generate the replacement text
+#   1: target file path
+#   2: marker base name, e.g. "platypus-svn-help"
+#   3..: command to generate the replacement text
 update_block() {
+  local target="$1"
+  shift
   local marker="$1"
   shift
   local generator_cmd=("$@")
   local generator_str="${generator_cmd[*]}"
 
   # Use temp files and only replace the target on success to avoid truncation
-  TMP_IN=$(mktemp "${CMD_MD}.in.XXXX")
-  TMP_OUT=$(mktemp "${CMD_MD}.out.XXXX")
+  TMP_IN=$(mktemp "${target}.in.XXXX")
+  TMP_OUT=$(mktemp "${target}.out.XXXX")
   trap 'rm -f "$TMP_IN" "$TMP_OUT"' EXIT
 
   # Run the command and capture help text
@@ -35,10 +40,10 @@ update_block() {
   help_text="$(PLATYPUS_ROOT="" "$@" 2>&1)"
 
   # Work on a temp copy so we can do multiple blocks in one run
-  cp "$CMD_MD" "$TMP_IN"
+  cp "$target" "$TMP_IN"
 
   # Use Perl to replace the text between markers.
-  # Format help text as a bash code block (like other sections in COMMANDS.md)
+  # Format help text as a bash code block (like other sections in the docs)
   GEN_CMD="$generator_str" perl -0pe '
     BEGIN {
       $marker = shift @ARGV;
@@ -64,14 +69,14 @@ update_block() {
     $_ = $before . "\n" . $help . "\n" . $after;
   ' "$marker" "$TMP_IN" <<< "$help_text" > "$TMP_OUT"
 
-  mv "$TMP_OUT" "$CMD_MD"
+  mv "$TMP_OUT" "$target"
   rm -f "$TMP_IN"
   trap - EXIT
 }
 
-# Update each block you care about:
+# Update each doc with its help block
 
-update_block "platypus-help"         "$PLATYPUS_CMD" --help
-update_block "platypus-subtree-help" "$PLATYPUS_CMD" subtree --help
-update_block "platypus-svn-help"     "$PLATYPUS_CMD" svn --help
+update_block "$DOC_PLATYPUS" "platypus-help"         "$PLATYPUS_CMD" --help
+update_block "$DOC_SUBTREE"  "platypus-subtree-help" "$PLATYPUS_CMD" subtree --help
+update_block "$DOC_SVN"      "platypus-svn-help"     "$PLATYPUS_CMD" svn --help
 

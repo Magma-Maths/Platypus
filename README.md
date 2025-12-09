@@ -38,6 +38,8 @@ Commands:
   sync      Run full sync (TODO)
   help      Show help message
   version   Show version information
+
+See the detailed command docs in `docs/platypus.md`, `docs/subtree.md`, and `docs/svn.md`.
 ```
 
 ## Commands

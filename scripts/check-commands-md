@@ -4,13 +4,13 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-# Run the updater (this may modify COMMANDS.md)
+# Run the updater (this may modify docs)
 "$ROOT/scripts/update-commands-md"
 
-# Check whether COMMANDS.md is now different from what is staged/tracked
-if ! git diff --quiet -- COMMANDS.md; then
-  echo "COMMANDS.md is out of date with respect to platypus --help output." >&2
-  echo "Run: ./scripts/update-commands-md and commit the updated COMMANDS.md." >&2
+# Check whether docs are now different from what is staged/tracked
+if ! git diff --quiet -- docs/platypus.md docs/subtree.md docs/svn.md; then
+  echo "Docs are out of date with respect to platypus --help output." >&2
+  echo "Run: ./scripts/update-commands-md and commit the updated docs." >&2
   exit 1
 fi
 

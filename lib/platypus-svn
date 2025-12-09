@@ -422,51 +422,53 @@ svn:command:abort() {
 # Continue after conflict resolution:
 svn:command:continue() {
   state:exists || error "No operation in progress to continue."
-  
   state:reset-run
   state:load
+  
   say "Resuming svngit operation..."
   $dry_run && say "[DRY RUN MODE]"
   
-  # Check if we're resuming from a dcommit race condition (mid-rebase state)
+  # 1. Handle Dcommit Race Condition (Rebase State)
+  # If we crashed during dcommit, we are in a rebase. Finish it.
   if git:rebase-in-progress; then
     say "Completing rebase from dcommit race condition..."
-    # User should have resolved conflicts and staged them
+    
+    # Validation: User must have staged conflict resolutions
     if ! $dry_run && git diff --quiet --cached 2>/dev/null; then
       error "Rebase in progress but no staged changes. Please resolve conflicts, stage them, and try again."
     fi
     
-    # Complete the rebase - add conflicts for any remaining commits
     git:complete-rebase-with-conflicts
     $dry_run || say "Rebase completed."
   fi
   
-  # User should have resolved and committed
+  # 2. Validation
   git:assert-clean-worktree
   
-  # Continue with remaining commits
+  # 3. Resume Exporting Commits
+  # execute:export-plan handles 'COMMITS' list from state
   if [[ -n $COMMITS ]]; then
     execute:export-plan
   fi
   
+  # 4. Finalize (Same steps as pipeline:export)
   sync:dcommit
   sync:advance-marker
   sync:merge-back
   
-  # Clear state
+  # 5. Cleanup
   state:clear
   
-  # Return to original branch
+  # Explicitly switch back because the 'trap' skips cleanup in --continue mode
   if [[ $original_branch && $original_branch != "$MAIN" ]]; then
     o "Returning to original branch: $original_branch"
     RUN git switch "$original_branch"
   fi
   
-  # Clear for cleanup trap
+  # Prevent double-cleanup if logic changes later
   original_branch=
   
   say "=== Done: resumed and completed export to SVN ==="
-  
   conflict:report-outcome
 }
 
@@ -901,7 +903,9 @@ pipeline:export() {
   # Prepare and execute export
   sync:prepare-export-branch
   if ! sync:export-commits; then
-    say "No commits exported; leaving marker at $(git:short-hash "$BASE")."
+    say "No commits exported (all pending commits were empty exports)."
+    say "Advancing marker to $(git:short-hash "$TIP") to avoid reprocessing."
+    sync:advance-marker
     return 0
   fi
 
