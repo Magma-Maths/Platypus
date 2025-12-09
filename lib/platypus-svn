@@ -146,7 +146,8 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   pull              Pull latest changes from SVN into local mirror
-  push              Push Git commits to SVN and merge back
+  push              Export origin/main commits to SVN and merge back (no git fetch/push)
+  sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
 
@@ -183,16 +184,20 @@ Examples:
   # Pull latest SVN changes
   platypus svn pull
 
-  # Push Git commits to SVN
+  # Push Git commits to SVN (assumes origin/main already fetched)
+  git fetch origin
   platypus svn push --verbose
-  platypus svn push --debug --dry-run
-  platypus svn push --push-conflicts
+
+  # Full workflow (fetch + SVN export + push origin)
+  platypus svn sync --verbose
+  platypus svn sync --debug --dry-run
+  platypus svn sync --push-conflicts
 
   # With custom environment
-  REMOTE=upstream MAIN=master platypus svn push
+  REMOTE=upstream MAIN=master platypus svn sync
 
 Automation example:
-  platypus svn push --push-conflicts --quiet
+  platypus svn sync --push-conflicts --quiet
   case $? in
     0) echo "Success" ;;
     1) echo "Error" ;;
@@ -462,6 +467,20 @@ sync:fetch() {
 
   TIP="$(git rev-parse "$REMOTE/$MAIN")"
   o "Remote tip: $(git:short-hash "$TIP")"
+}
+
+# Set TIP from the locally cached remote ref (assumes user fetched already)
+sync:set-tip-from-remote() {
+  # Verify remote exists
+  git remote get-url "$REMOTE" &>/dev/null ||
+    error "Remote '$REMOTE' does not exist. Check REMOTE variable."
+
+  # Verify main branch exists on remote (cached)
+  git:remote-ref-exists "refs/remotes/$REMOTE/$MAIN" ||
+    error "Branch '$MAIN' not found on remote '$REMOTE'. Check MAIN variable."
+
+  TIP="$(git rev-parse "$REMOTE/$MAIN")"
+  o "Remote tip (cached): $(git:short-hash "$TIP")"
 }
 
 # Update local SVN mirror branch to match SVN trunk:
@@ -828,11 +847,6 @@ sync:merge-back() {
       error "Merge conflict - manual resolution required"
     fi
   fi
-
-  o "Push $MAIN to $REMOTE"
-  RUN git push "$REMOTE" "$MAIN" ||
-    error "Failed to push $MAIN. Someone may have pushed first.
-  Try: git pull --rebase && git push"
 }
 
 #------------------------------------------------------------------------------
@@ -867,7 +881,7 @@ pipeline:pull() {
     pending_count=$(echo "$pending_commits" | wc -l | tr -d ' ')
     say ""
     say "SVN mirror updated. $pending_count commit(s) pending to push."
-    say "Run 'platypus svn push' to export them to SVN."
+    say "Run 'platypus svn push' to export them to SVN (or 'platypus svn sync' for full workflow)."
   else
     say ""
     say "SVN mirror updated. No commits pending."
@@ -898,8 +912,8 @@ pipeline:push() {
   o "Assert working tree is clean"
   git:assert-clean-worktree
   
-  # Step 1: Fetch latest Git state
-  sync:fetch
+  # Step 1: Load remote tip from local refs (requires user to have fetched)
+  sync:set-tip-from-remote
   
   # Step 2: Update SVN mirror (ensure we have latest SVN state)
   sync:update-svn-mirror
@@ -914,7 +928,7 @@ pipeline:push() {
       RUN git switch "$original_branch"
     fi
     original_branch=
-    exit 0
+    return 0
   fi
   plan:describe-export-plan
   state:materialize-plan
@@ -930,7 +944,7 @@ pipeline:push() {
       RUN git switch "$original_branch"
     fi
     original_branch=
-    exit 0
+    return 0
   fi
   
   # Step 7: Push to SVN
@@ -955,6 +969,23 @@ pipeline:push() {
   
   conflict:report-outcome
   return 0
+}
+
+pipeline:sync() {
+  # Full workflow wrapper (fetch + push + push origin)
+  sync:fetch
+  pipeline:push
+
+  # Push main to origin after successful SVN export
+  if $dry_run; then
+    say "[dry-run] Would push $MAIN to $REMOTE"
+    return 0
+  fi
+
+  o "Push $MAIN to $REMOTE"
+  RUN git push "$REMOTE" "$MAIN" ||
+    error "Failed to push $MAIN. Someone may have pushed first.
+  Try: git pull --rebase && git push"
 }
 
 #------------------------------------------------------------------------------
@@ -989,6 +1020,23 @@ svn:command:push() {
   pipeline:push
 }
 
+# Full workflow: fetch, SVN export, merge, push to origin
+svn:command:sync() {
+  say "=== platypus svn sync v${PLATYPUS_VERSION:-unknown} ==="
+  $dry_run && say "[DRY RUN MODE]"
+  $debug_wanted && say "[DEBUG MODE]"
+  $push_conflicts && say "[PUSH CONFLICTS MODE]"
+  
+  state:reset-run
+
+  if state:exists; then
+    error "An operation is already in progress.
+  Use --continue to resume or --abort to cancel."
+  fi
+
+  pipeline:sync
+}
+
 #------------------------------------------------------------------------------
 # Command dispatch:
 #------------------------------------------------------------------------------
@@ -1003,6 +1051,9 @@ svn:dispatch() {
       ;;
     push)
       svn:command:push "$@"
+      ;;
+    sync)
+      svn:command:sync "$@"
       ;;
     help|--help|-h)
       svn:usage
