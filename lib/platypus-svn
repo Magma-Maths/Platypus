@@ -498,52 +498,39 @@ sync:update-svn-mirror() {
     error "git svn rebase failed. Check SVN server connectivity and authentication."
 }
 
-
-
-# Initialize marker branch if it doesn't exist:
 sync:init-marker() {
+  # Initialize if missing
   if ! git:remote-ref-exists "refs/remotes/$REMOTE/$MARKER"; then
     local base_init
     base_init="$(git merge-base "$REMOTE/$MAIN" "$SVN_BRANCH")"
     say "Marker $REMOTE/$MARKER missing; initializing to $(git:short-hash "$base_init")"
-
+    
     if ! $dry_run; then
-      RUN git push "$REMOTE" "$base_init:refs/heads/$MARKER" ||
-        error "Failed to push marker branch. Check write permissions to '$REMOTE'."
+      RUN git push "$REMOTE" "$base_init:refs/heads/$MARKER"
       RUN git fetch "$REMOTE" "refs/heads/$MARKER:refs/remotes/$REMOTE/$MARKER"
       BASE="$(git rev-parse "refs/remotes/$REMOTE/$MARKER")"
     else
       o "[dry-run] Would push marker to $base_init"
-      # In dry-run mode, use the computed base since marker doesn't exist yet
       BASE="$base_init"
     fi
   else
     BASE="$(git rev-parse "refs/remotes/$REMOTE/$MARKER")"
   fi
 
-  # Check marker is ancestor of TIP (detect history rewrite)
-  if ! git merge-base --is-ancestor "$BASE" "$TIP" 2>/dev/null; then
-    err ""
-    err "Marker '$MARKER' ($(git:short-hash "$BASE")) is not an ancestor of $REMOTE/$MAIN."
-    err "This usually means history was rewritten (force-push or rebase)."
-    err ""
-    err "To reset marker to current merge-base:"
-    err "  git push $REMOTE \$(git merge-base $REMOTE/$MAIN $SVN_BRANCH):refs/heads/$MARKER --force"
+  o "Marker position: $(git:short-hash "$BASE")"
+
+  # Validate Marker Integrity (Ancestry & First-Parent Path)
+  local is_ancestor is_first_parent
+  git merge-base --is-ancestor "$BASE" "$TIP" 2>/dev/null && is_ancestor=true || is_ancestor=false
+  git rev-list --first-parent "$TIP" | grep -q "$(git rev-parse "$BASE")" && is_first_parent=true || is_first_parent=false
+
+  if ! $is_ancestor || ! $is_first_parent; then
+    err "" "Stale marker detected: $(git:short-hash "$BASE")"
+    ! $is_ancestor && err "  - Marker is not an ancestor of $REMOTE/$MAIN (history rewritten?)"
+    ! $is_first_parent && err "  - Marker is not on the first-parent path (marker moved off mainline?)"
+    err "" "Fix: git push $REMOTE \$(git merge-base $REMOTE/$MAIN $SVN_BRANCH):refs/heads/$MARKER --force"
     error "Stale marker detected"
   fi
-
-  # Also require marker to be on the first-parent path of MAIN to avoid replaying
-  # commits after a rewritten or merged history.
-  if ! git rev-list --first-parent "$TIP" | grep -q "$(git rev-parse "$BASE")"; then
-    err ""
-    err "Marker '$MARKER' ($(git:short-hash "$BASE")) is not on the first-parent path of $REMOTE/$MAIN."
-    err "History may have been rewritten or the marker moved off the mainline."
-    err ""
-    err "To reset marker to current merge-base:"
-    err "  git push $REMOTE \$(git merge-base $REMOTE/$MAIN $SVN_BRANCH):refs/heads/$MARKER --force"
-    error "Stale marker detected"
-  fi
-
   o "Marker position: $(git:short-hash "$BASE")"
 }
 
@@ -1028,23 +1015,13 @@ svn:parse-specific-options() {
 
 svn:main() {
   svn:ensure-globals
-
   svn:parse-specific-options "$@"
-
-  # Parse common options to set verbose_wanted, quiet_wanted, debug_wanted
   common:parse-options "${svn_specific_args[@]:-}"
   eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
   
-  # Verbose implies not quiet
-  if $verbose_wanted; then
-    quiet_wanted=false
-  fi
-  
-  # Debug implies verbose
-  if $debug_wanted; then
-    verbose_wanted=true
-    quiet_wanted=false
-  fi
+  # Set verbose/quiet based on options
+  $verbose_wanted && quiet_wanted=false
+  $debug_wanted && { verbose_wanted=true; quiet_wanted=false; }
   
   # Can't use both --continue and --abort
   if $continue_mode && $abort_mode; then
@@ -1052,24 +1029,15 @@ svn:main() {
   fi
   
   # Can't use both --continue and --push-conflicts
-  # --continue means "I've manually resolved", --push-conflicts means "auto-resolve"
   if $continue_mode && $push_conflicts; then
     error "Can't use both --continue and --push-conflicts.
   Use --continue after manually resolving conflicts.
   Use --push-conflicts for automatic resolution with conflict markers."
   fi
 
-  # Handle --abort early (no subcommand needed)
-  if $abort_mode; then
-    svn:command:abort "$@"
-    return 0
-  fi
-
-  # Handle --continue early (no subcommand needed)
-  if $continue_mode; then
-    svn:command:continue "$@"
-    return 0
-  fi
+# Early exit commands
+  if $abort_mode; then svn:command:abort "$@"; return 0; fi
+  if $continue_mode; then svn:command:continue "$@"; return 0; fi
   
   # Use common dispatch for the rest (module-scoped usage/version)
   common:dispatch svn:usage svn:version svn:dispatch "$@"
