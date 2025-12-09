@@ -88,7 +88,13 @@ current_commit=         # Current commit being processed (for state save)
 # Cleanup function called on exit or interrupt:
 cleanup() {
   local exit_code=${1:-$?}
-  local current_branch
+  local current_branch return_branch
+
+  # Prefer the branch captured by pipeline:prepare (or any saved state) for cleanup.
+  return_branch=$original_branch
+  if [[ -z $return_branch && -f "$STATE_DIR/original-branch" ]]; then
+    return_branch=$(cat "$STATE_DIR/original-branch" 2>/dev/null || true)
+  fi
 
   # Prevent double cleanup (e.g., ERR + EXIT)
   if $cleanup_invoked; then
@@ -106,14 +112,14 @@ cleanup() {
 
   # If we're on the export branch, switch away first
   if [[ $current_branch == "$EXPORT_BRANCH" ]]; then
-    if [[ $original_branch ]]; then
-      git switch "$original_branch" 2>/dev/null || git switch "$SVN_BRANCH" 2>/dev/null || true
+    if [[ $return_branch ]]; then
+      git switch "$return_branch" 2>/dev/null || git switch "$SVN_BRANCH" 2>/dev/null || true
     else
       git switch "$SVN_BRANCH" 2>/dev/null || true
     fi
-  elif [[ $original_branch ]]; then
+  elif [[ $return_branch ]]; then
     # Restore original branch if we changed it
-    git switch "$original_branch" 2>/dev/null || true
+    git switch "$return_branch" 2>/dev/null || true
   fi
 
   # On success: delete the temporary export branch and state
@@ -464,7 +470,7 @@ svn:command:continue() {
   conflict:report-outcome
 }
 
-# Pull latest changes from SVN and orign/main:
+# Get the latest changes from SVN (via git svn rebase) and orign/main (via git fetch):
 sync:fetch() {
   # Verify remote exists
   git remote get-url "$REMOTE" &>/dev/null ||
@@ -580,6 +586,16 @@ plan:build-export-plan() {
 
 plan:describe-export-plan() {
   say "Found $PLAN_COUNT commit(s) to export (first-parent $(git:short-hash "$BASE")..$(git:short-hash "$TIP"))."
+}
+
+# Primary entrypoint for building the plan used by pipelines
+plan:build() {
+  if ! plan:build-export-plan; then
+    return 1
+  fi
+
+  plan:describe-export-plan
+  return 0
 }
 
 # Backwards-compatible wrapper used by existing pipeline
@@ -863,27 +879,29 @@ sync:merge-back() {
 # Pipelines (orchestrate pull/push sequences):
 #------------------------------------------------------------------------------
 
-pipeline:pull() {
+pipeline:prepare() {
   # Check environment
   assert-environment-ok
-  
-  # Remember original branch for cleanup
-  original_branch=$(git:get-current-branch)
+
+  # Remember original branch for cleanup if not already set (e.g., resume flows)
+  if [[ -z $original_branch ]]; then
+    original_branch=$(git:get-current-branch)
+  fi
   o "Original branch: $original_branch"
-  
+
   # Require clean working tree
   o "Assert working tree is clean"
   git:assert-clean-worktree
-  
-  # Step 1: Fetch latest Git state (needed for marker check)
+
+  # Shared setup for update/export
   sync:fetch
-  
-  # Step 2: Update SVN mirror (the actual update)
   sync:update-svn-mirror
-  
-  # Step 3: Ensure marker exists and show status
   sync:init-marker
-  
+}
+
+pipeline:update() {
+  pipeline:prepare
+
   # Show what commits are available to export
   local pending_commits pending_count
   pending_commits=$(git rev-list --first-parent "$BASE..$TIP" 2>/dev/null || true)
@@ -896,57 +914,36 @@ pipeline:pull() {
     say ""
     say "SVN mirror updated. No commits pending."
   fi
-  
+
   # Return to original branch
   if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
     o "Returning to original branch: $original_branch"
     RUN git switch "$original_branch"
   fi
-  
+
   # Clear for cleanup trap
   original_branch=
-  
+
   say "=== Done: SVN update complete ==="
   return 0
 }
 
-pipeline:push() {
-  # Check environment
-  assert-environment-ok
-  
-  # Remember original branch for cleanup
-  original_branch=$(git:get-current-branch)
-  o "Original branch: $original_branch"
-  
-  # Require clean working tree
-  o "Assert working tree is clean"
-  git:assert-clean-worktree
-  
-  # Step 1: Fetch latest Git state (sets TIP)
-  sync:fetch
-  
-  # Step 2: Update SVN mirror (ensure we have latest SVN state)
-  sync:update-svn-mirror
-  
-  # Step 3: Ensure marker exists
-  sync:init-marker
-  
-  # Step 4: Build export plan (first-parent)
-  if ! plan:build-export-plan; then
+pipeline:export() {
+  pipeline:prepare
+
+  # Build export plan (first-parent)
+  if ! plan:build; then
     if [[ $original_branch ]]; then
       RUN git switch "$original_branch"
     fi
     original_branch=
     return 0
   fi
-  plan:describe-export-plan
   state:materialize-plan
-  
-  # Step 5: Prepare export branch
+
+  # Prepare and execute export
   sync:prepare-export-branch
-  
-  # Step 6: Execute export plan
-  if ! execute:export-plan; then
+  if ! sync:export-commits; then
     say "No commits exported; leaving marker at $(git:short-hash "$BASE")."
     if [[ $original_branch ]]; then
       o "Returning to original branch: $original_branch"
@@ -955,34 +952,30 @@ pipeline:push() {
     original_branch=
     return 0
   fi
-  
-  # Step 7: Push to SVN
+
+  # Push to SVN and advance marker
   sync:dcommit
-  
-  # Step 8: Advance marker
   sync:advance-marker
-  
-  # Step 9: Merge back to main
   sync:merge-back
-  
-  # Step 10: Return to original branch
+
+  # Return to original branch
   if [[ $original_branch && $original_branch != "$MAIN" ]]; then
     o "Returning to original branch: $original_branch"
     RUN git switch "$original_branch"
   fi
-  
+
   # Clear original_branch so cleanup trap doesn't try to switch again
   original_branch=
-  
+
   say "=== Done: exported $(git:short-hash "$BASE")..$(git:short-hash "$TIP") to SVN ==="
-  
+
   conflict:report-outcome
   return 0
 }
 
 pipeline:sync() {
-  # Full workflow wrapper (fetch + push + push origin)
-  pipeline:push
+  # Full workflow wrapper (fetch + export + push origin)
+  pipeline:export
 
   # Push main to origin after successful SVN export
   if $dry_run; then
@@ -1005,7 +998,7 @@ svn:command:update() {
   $debug_wanted && say "[DEBUG MODE]"
   
   state:reset-run
-  pipeline:pull
+  pipeline:update
 }
 
 svn:command:export() {
@@ -1022,7 +1015,7 @@ svn:command:export() {
   Use --continue to resume or --abort to cancel."
   fi
   
-  pipeline:push
+  pipeline:export
 }
 
 svn:command:sync() {
