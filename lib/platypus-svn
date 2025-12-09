@@ -464,8 +464,7 @@ svn:command:continue() {
   conflict:report-outcome
 }
 
-# Pull latest changes from SVN:
-# Fetch latest Git state from remote:
+# Pull latest changes from SVN and orign/main:
 sync:fetch() {
   # Verify remote exists
   git remote get-url "$REMOTE" &>/dev/null ||

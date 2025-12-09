@@ -40,24 +40,27 @@ create_svn_failure_fixture() {
 make_git_wrapper() {
   local mode=$1
   local dir="$TEST_TMP/fake-git-$mode"
+  local real_git
+  real_git=$(command -v git)
   mkdir -p "$dir"
-  cat > "$dir/git" <<'EOF'
+  cat > "$dir/git" <<EOF
 #!/usr/bin/env bash
-case "$GIT_WRAPPER_MODE" in
+REAL_GIT="$real_git"
+case "\$GIT_WRAPPER_MODE" in
   rebase_fail)
-    if [[ "$1" == "svn" && "$2" == "rebase" ]]; then
+    if [[ "\$1" == "svn" && "\$2" == "rebase" ]]; then
       echo "forced git svn rebase failure" >&2
       exit 1
     fi
     ;;
   dcommit_fail)
-    if [[ "$1" == "svn" && "$2" == "dcommit" ]]; then
+    if [[ "\$1" == "svn" && "\$2" == "dcommit" ]]; then
       echo "forced git svn dcommit failure" >&2
       exit 1
     fi
     ;;
 esac
-exec /usr/bin/env git "$@"
+exec "\$REAL_GIT" "\$@"
 EOF
   chmod +x "$dir/git"
   export PATH="$dir:$PATH"
