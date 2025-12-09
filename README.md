@@ -213,8 +213,8 @@ platypus subtree status
 5. Push changes:     platypus subtree push lib/foo
                      (git subtree split --onto=<cached> + push)
 
-6. Sync to SVN:      platypus svn push
-                     (pushes all monorepo changes back to SVN)
+6. Sync to SVN:      platypus svn export
+                     (exports all monorepo changes back to SVN)
 ```
 
 **Workflow (Add External Library):**

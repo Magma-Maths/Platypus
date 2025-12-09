@@ -76,11 +76,11 @@ setup_platypus_svn_repo() {
 }
 
 #------------------------------------------------------------------------------
-# Basic SVN pull tests
+# Basic SVN update tests
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn pull: fetches new SVN commits into mirror" {
+@test "svn update: fetches new SVN commits into mirror" {
   setup_platypus_svn_repo "pull-test"
   
   # Add a new commit directly to SVN
@@ -92,11 +92,11 @@ setup_platypus_svn_repo() {
   git checkout svn 2>/dev/null || git checkout -b svn git-svn
   [ ! -f "new-file.txt" ]
   
-  # Switch back to main for platypus svn pull
+  # Switch back to main for platypus svn update
   git checkout main
   
-  # Pull should bring in the new commit
-  run platypus svn pull
+  # Update should bring in the new commit
+  run platypus svn update
   [ "$status" -eq 0 ]
   
   # Now svn branch should have the file
@@ -105,7 +105,7 @@ setup_platypus_svn_repo() {
 }
 
 # bats test_tags=docker
-@test "svn pull: reports pending commits to push" {
+@test "svn update: reports pending commits to export" {
   setup_platypus_svn_repo "pull-pending-test"
   
   cd "$GIT_REPO"
@@ -116,18 +116,18 @@ setup_platypus_svn_repo() {
   git commit -m "Local commit"
   git push origin main
   
-  # Pull should report pending commits
-  run platypus svn pull
+  # Update should report pending commits
+  run platypus svn update
   [ "$status" -eq 0 ]
   [[ "$output" == *"pending"* ]] || [[ "$output" == *"commit"* ]]
 }
 
 #------------------------------------------------------------------------------
-# Basic SVN push tests
+# Basic SVN export tests
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn push: exports Git commits to SVN" {
+@test "svn export: exports Git commits to SVN" {
   setup_platypus_svn_repo "push-test"
   
   cd "$GIT_REPO"
@@ -138,8 +138,8 @@ setup_platypus_svn_repo() {
   git commit -m "Add file from Git"
   git push origin main
   
-  # Push to SVN
-  run platypus svn push
+  # Export to SVN
+  run platypus svn export
   [ "$status" -eq 0 ]
   
   # Verify the file is in SVN
@@ -149,7 +149,7 @@ setup_platypus_svn_repo() {
 }
 
 # bats test_tags=docker
-@test "svn push: advances marker after successful push" {
+@test "svn export: advances marker after successful export" {
   setup_platypus_svn_repo "marker-test"
   
   cd "$GIT_REPO"
@@ -164,8 +164,8 @@ setup_platypus_svn_repo() {
   git commit -m "Test commit"
   git push origin main
   
-  # Push to SVN
-  run platypus svn push
+  # Export to SVN
+  run platypus svn export
   [ "$status" -eq 0 ]
   
   # Marker should have advanced
@@ -176,7 +176,7 @@ setup_platypus_svn_repo() {
 }
 
 # bats test_tags=docker
-@test "svn push: merges SVN metadata back to main" {
+@test "svn export: merges SVN metadata back to main" {
   setup_platypus_svn_repo "merge-back-test"
   
   cd "$GIT_REPO"
@@ -187,8 +187,8 @@ setup_platypus_svn_repo() {
   git commit -m "Test commit"
   git push origin main
   
-  # Push to SVN
-  run platypus svn push
+  # Export to SVN
+  run platypus svn export
   [ "$status" -eq 0 ]
   
   # Main should have a merge commit from SVN
@@ -207,7 +207,7 @@ setup_platypus_svn_repo() {
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn push: handles multiple commits correctly" {
+@test "svn export: handles multiple commits correctly" {
   setup_platypus_svn_repo "multi-commit-test"
   
   cd "$GIT_REPO"
@@ -220,8 +220,8 @@ setup_platypus_svn_repo() {
   done
   git push origin main
   
-  # Push to SVN
-  run platypus svn push
+  # Export to SVN
+  run platypus svn export
   [ "$status" -eq 0 ]
   
   # Verify all files are in SVN
@@ -237,7 +237,7 @@ setup_platypus_svn_repo() {
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn push: subtree merge exports as net diff" {
+@test "svn export: subtree merge exports as net diff" {
   setup_platypus_svn_repo "subtree-test"
   
   cd "$GIT_REPO"
@@ -262,8 +262,8 @@ setup_platypus_svn_repo() {
   git subtree add --prefix=lib/foo "$lib_dir" main -m "Add lib/foo subtree"
   git push origin main
   
-  # Push to SVN
-  run platypus svn push
+  # Export to SVN
+  run platypus svn export
   [ "$status" -eq 0 ]
   
   # Verify lib files are in SVN
@@ -284,7 +284,7 @@ setup_platypus_svn_repo() {
 }
 
 # bats test_tags=docker
-@test "svn push: first-parent history excludes subtree internals" {
+@test "svn export: first-parent history excludes subtree internals" {
   setup_platypus_svn_repo "first-parent-test"
   
   cd "$GIT_REPO"
@@ -324,8 +324,8 @@ setup_platypus_svn_repo() {
   # Should be 2 (subtree add merge + main commit), NOT 5 (including lib commits)
   [ "$first_parent_count" -eq 2 ]
   
-  # Push should work correctly
-  run platypus svn push
+  # Export should work correctly
+  run platypus svn export
   [ "$status" -eq 0 ]
 }
 
@@ -334,7 +334,7 @@ setup_platypus_svn_repo() {
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn push: detects conflicts with concurrent SVN changes" {
+@test "svn export: detects conflicts with concurrent SVN changes" {
   setup_platypus_svn_repo "conflict-test"
   
   cd "$GIT_REPO"
@@ -348,13 +348,13 @@ setup_platypus_svn_repo() {
   # Also modify README.txt in SVN (creating conflict)
   svn_add_file "$SVN_URL" "README.txt" "Modified by SVN" "Modify README in SVN"
   
-  # Push should fail due to conflict
-  run platypus svn push
+  # Export should fail due to conflict
+  run platypus svn export
   [ "$status" -ne 0 ]
 }
 
 # bats test_tags=docker
-@test "svn push --push-conflicts: commits with conflict markers" {
+@test "svn export --push-conflicts: commits with conflict markers" {
   setup_platypus_svn_repo "push-conflicts-test"
   
   cd "$GIT_REPO"
@@ -368,8 +368,8 @@ setup_platypus_svn_repo() {
   # Also modify README.txt in SVN
   svn_add_file "$SVN_URL" "README.txt" "Modified by SVN" "Modify README in SVN"
   
-  # Push with --push-conflicts should succeed with exit code 2
-  run platypus svn push --push-conflicts
+  # Export with --push-conflicts should succeed with exit code 2
+  run platypus svn export --push-conflicts
   # Exit code 2 means success with conflicts
   [ "$status" -eq 2 ] || [ "$status" -eq 0 ]
   
@@ -382,7 +382,7 @@ setup_platypus_svn_repo() {
 #------------------------------------------------------------------------------
 
 # bats test_tags=docker
-@test "svn push --dry-run: shows what would happen without modifying" {
+@test "svn export --dry-run: shows what would happen without modifying" {
   setup_platypus_svn_repo "dry-run-test-$$"
   
   cd "$GIT_REPO"
@@ -398,7 +398,7 @@ setup_platypus_svn_repo() {
   initial_marker=$(git rev-parse origin/svn-marker)
   
   # Dry run
-  run platypus svn push --dry-run
+  run platypus svn export --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"dry-run"* ]] || [[ "$output" == *"DRY RUN"* ]]
   
@@ -603,11 +603,11 @@ setup_platypus_svn_repo() {
   #---------------------------------------------------------------------------
   
   # First, ensure SVN mirror is up to date
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -eq 0 ]
   
-  # Push to SVN (use --push-conflicts for merge commits from subtree pulls)
-  run platypus svn push --push-conflicts
+  # Export to SVN (use --push-conflicts for merge commits from subtree pulls)
+  run platypus svn export --push-conflicts
   # Status 2 = completed with conflicts which is acceptable for merge commits
   [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
   

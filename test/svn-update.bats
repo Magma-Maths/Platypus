@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2164,SC2034  # cd failures handled by bats; unused vars are for clarity
 #
-# svn-pull.bats - Tests for 'platypus svn pull' command
+# svn-update.bats - Tests for 'platypus svn update' command
 #
 # NOTE: These tests verify command parsing and error handling.
 # Full integration tests require an actual SVN server.
@@ -52,10 +52,19 @@ create_mock_svn_repo() {
 # Command parsing tests
 #------------------------------------------------------------------------------
 
-@test "svn pull shows help with --help" {
-  run platypus svn pull --help 2>&1 || true
+@test "svn update shows help with --help" {
+  run platypus svn update --help 2>&1 || true
   # Should show usage information
   [[ "$output" == *"Usage"* ]] || [[ "$output" == *"platypus svn"* ]]
+}
+
+# Legacy name should be rejected now that the command is renamed
+@test "legacy svn pull subcommand is rejected" {
+  cd "$TEST_TMP"
+
+  run platypus svn pull
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unknown"* ]]
 }
 
 @test "svn shows usage without subcommand" {
@@ -82,15 +91,15 @@ create_mock_svn_repo() {
 # Error handling tests
 #------------------------------------------------------------------------------
 
-@test "svn pull fails outside git repo" {
+@test "svn update fails outside git repo" {
   cd "$TEST_TMP"
   
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -ne 0 ]
   [[ "$output" == *"git repository"* ]] || [[ "$output" == *"Not inside"* ]]
 }
 
-@test "svn pull fails without git-svn configured" {
+@test "svn update fails without git-svn configured" {
   local repo
   repo=$(create_repo "test")
   cd "$repo"
@@ -103,13 +112,13 @@ create_mock_svn_repo() {
   # Add a remote
   git remote add origin "file://$repo"
   
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -ne 0 ]
   # Should fail because git-svn ref doesn't exist
   [[ "$output" == *"SVN"* ]] || [[ "$output" == *"git-svn"* ]]
 }
 
-@test "svn pull fails with dirty working tree" {
+@test "svn update fails with dirty working tree" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -118,12 +127,12 @@ create_mock_svn_repo() {
   echo "dirty" > dirty.txt
   git add dirty.txt
   
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -ne 0 ]
   [[ "$output" == *"staged"* ]] || [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"changes"* ]]
 }
 
-@test "svn pull fails with unstaged changes" {
+@test "svn update fails with unstaged changes" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -131,7 +140,7 @@ create_mock_svn_repo() {
   # Create unstaged changes to tracked file
   echo "modified" >> file.txt
   
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unstaged"* ]] || [[ "$output" == *"changes"* ]]
 }
@@ -140,32 +149,32 @@ create_mock_svn_repo() {
 # Option handling tests
 #------------------------------------------------------------------------------
 
-@test "svn pull accepts --verbose flag" {
+@test "svn update accepts --verbose flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # This will still fail (no real SVN) but should parse the option
-  run platypus svn pull --verbose 2>&1 || true
+  run platypus svn update --verbose 2>&1 || true
   # Verbose flag should be accepted without "unknown option" error
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn pull accepts --dry-run flag" {
+@test "svn update accepts --dry-run flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn pull --dry-run 2>&1 || true
+  run platypus svn update --dry-run 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn pull accepts -n flag" {
+@test "svn update accepts -n flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn pull -n 2>&1 || true
+  run platypus svn update -n 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
@@ -173,16 +182,16 @@ create_mock_svn_repo() {
 # State management tests
 #------------------------------------------------------------------------------
 
-@test "svn pull does not leave state on normal completion" {
+@test "svn update does not leave state on normal completion" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  # Attempt pull (will fail on SVN operations but shouldn't leave state)
-  platypus svn pull 2>&1 || true
+  # Attempt update (will fail on SVN operations but shouldn't leave state)
+  platypus svn update 2>&1 || true
   
-  # State directory should not exist after failed pull
-  # (pull doesn't create state - only push does)
+  # State directory should not exist after failed update
+  # (update doesn't create state - only export does)
   [ ! -d ".git/svngit" ]
 }
 

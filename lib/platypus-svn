@@ -122,8 +122,8 @@ cleanup() {
     fi
     if state:exists; then
       err ""
-      err "Operation state saved. To resume after fixing: platypus svn push --continue"
-      err "To abort and clean up: platypus svn push --abort"
+      err "Operation state saved. To resume after fixing: platypus svn export --continue"
+      err "To abort and clean up: platypus svn export --abort"
     fi
   fi
 
@@ -145,8 +145,8 @@ Usage: platypus svn <command> [options]
 Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
-  pull              Pull latest changes from SVN into local mirror
-  push              Export origin/main commits to SVN and merge back (fetches origin, no git push)
+  update            Update local SVN mirror from SVN server (read-only)
+  export            Export Git commits to SVN server (does not push to Git origin)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -181,11 +181,11 @@ Conflict Tracking (for automation):
   - Conflicts are logged to CONFLICT_LOG file
 
 Examples:
-  # Pull latest SVN changes into origin/main (an attempt to provide a "git svn merge")
-  platypus svn pull
+  # Update local SVN mirror from SVN server (read-only)
+  platypus svn update
 
-  # Push Git commits to SVN (auto-fetches origin)
-  platypus svn push --verbose
+  # Export Git commits to SVN server (does not push to Git origin)
+  platypus svn export --verbose
 
   # Full workflow (fetch + SVN export + push origin)
   platypus svn sync --verbose
@@ -646,10 +646,10 @@ sync:export-commit() {
     err "  1. Inspect: git diff $p1 $commit"
     err "  2. Apply with conflicts: git diff --binary $p1 $commit | git apply --3way"
     err "  3. Fix conflicts, then: git add -A && git commit"
-    err "  4. Resume: platypus svn push --continue"
+    err "  4. Resume: platypus svn export --continue"
     err ""
-    err "Or abort: platypus svn push --abort"
-    err "Or retry with: platypus svn push --push-conflicts"
+    err "Or abort: platypus svn export --abort"
+    err "Or retry with: platypus svn export --push-conflicts"
     error "Patch apply failed"
   fi
 
@@ -787,10 +787,10 @@ sync:dcommit() {
         err "  1. Fix conflicts: git status"
         err "  2. Stage fixes: git add <files>"
         err "  3. Continue rebase: git rebase --continue"
-        err "  4. Resume: platypus svn push --continue"
+        err "  4. Resume: platypus svn export --continue"
         err ""
-        err "Or with conflict markers: platypus svn push --push-conflicts"
-        err "Or abort: platypus svn push --abort"
+        err "Or with conflict markers: platypus svn export --push-conflicts"
+        err "Or abort: platypus svn export --abort"
         error "git svn dcommit failed due to SVN race condition."
       fi
     else
@@ -867,20 +867,20 @@ pipeline:pull() {
   # Step 1: Fetch latest Git state (needed for marker check)
   sync:fetch
   
-  # Step 2: Update SVN mirror (the actual pull)
+  # Step 2: Update SVN mirror (the actual update)
   sync:update-svn-mirror
   
   # Step 3: Ensure marker exists and show status
   sync:init-marker
   
-  # Show what commits are available to push
+  # Show what commits are available to export
   local pending_commits pending_count
   pending_commits=$(git rev-list --first-parent "$BASE..$TIP" 2>/dev/null || true)
   if [[ -n "$pending_commits" ]]; then
     pending_count=$(echo "$pending_commits" | wc -l | tr -d ' ')
     say ""
-    say "SVN mirror updated. $pending_count commit(s) pending to push."
-    say "Run 'platypus svn push' to export them to SVN (or 'platypus svn sync' for full workflow)."
+    say "SVN mirror updated. $pending_count commit(s) pending to export."
+    say "Run 'platypus svn export' to export them to SVN (or 'platypus svn sync' for full workflow)."
   else
     say ""
     say "SVN mirror updated. No commits pending."
@@ -895,7 +895,7 @@ pipeline:pull() {
   # Clear for cleanup trap
   original_branch=
   
-  say "=== Done: SVN pull complete ==="
+  say "=== Done: SVN update complete ==="
   return 0
 }
 
@@ -988,12 +988,12 @@ pipeline:sync() {
 }
 
 #------------------------------------------------------------------------------
-# Command functions (pull/push entrypoints):
+# Command functions (update/export entrypoints):
 #------------------------------------------------------------------------------
 
-# Pull latest changes from SVN:
-svn:command:pull() {
-  say "=== platypus svn pull v${PLATYPUS_VERSION:-unknown} ==="
+# Update local SVN mirror from SVN server (read-only):
+svn:command:update() {
+  say "=== platypus svn update v${PLATYPUS_VERSION:-unknown} ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
   
@@ -1001,9 +1001,9 @@ svn:command:pull() {
   pipeline:pull
 }
 
-# Push Git commits to SVN:
-svn:command:push() {
-  say "=== platypus svn push v${PLATYPUS_VERSION:-unknown} ==="
+# Export Git commits to SVN:
+svn:command:export() {
+  say "=== platypus svn export v${PLATYPUS_VERSION:-unknown} ==="
   $dry_run && say "[DRY RUN MODE]"
   $debug_wanted && say "[DEBUG MODE]"
   $push_conflicts && say "[PUSH CONFLICTS MODE]"
@@ -1045,11 +1045,11 @@ svn:dispatch() {
   shift
   
   case "$cmd" in
-    pull)
-      svn:command:pull "$@"
+    update)
+      svn:command:update "$@"
       ;;
-    push)
-      svn:command:push "$@"
+    export)
+      svn:command:export "$@"
       ;;
     sync)
       svn:command:sync "$@"

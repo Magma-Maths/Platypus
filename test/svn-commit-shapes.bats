@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2164,SC2034  # cd handled by bats; unused vars for clarity
 #
-# svn-commit-shapes.bats - Commit shape edge cases for platypus svn push
+# svn-commit-shapes.bats - Commit shape edge cases for platypus svn export
 #
 
 load test_helper
@@ -57,7 +57,7 @@ svn_rev_count() {
   before_rev=$(svn_rev_count "$svn_url")
   marker_before=$(git rev-parse origin/svn-marker)
 
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
 
   git fetch origin >/dev/null 2>&1
@@ -70,7 +70,7 @@ svn_rev_count() {
 }
 
 # bats test_tags=docker
-@test "merge commit with only subtree changes pushes cleanly" {
+@test "merge commit with only subtree changes exports cleanly" {
   local setup svn_url git_repo rev_before rev_after
   setup=$(create_svn_shape_fixture "subtree-only-merge")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -93,7 +93,7 @@ svn_rev_count() {
 
   rev_before=$(svn_rev_count "$svn_url")
 
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ]
 
   rev_after=$(svn_rev_count "$svn_url")
@@ -126,7 +126,7 @@ svn_rev_count() {
 
   rev_before=$(svn_rev_count "$svn_url")
 
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ]
 
   rev_after=$(svn_rev_count "$svn_url")
@@ -167,7 +167,7 @@ svn_rev_count() {
 
   rev_before=$(svn_rev_count "$svn_url")
 
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ]
 
   rev_after=$(svn_rev_count "$svn_url")

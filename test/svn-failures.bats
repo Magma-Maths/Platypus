@@ -65,7 +65,7 @@ EOF
 }
 
 # bats test_tags=docker
-@test "svn pull aborts cleanly when git svn rebase fails" {
+@test "svn update aborts cleanly when git svn rebase fails" {
   local setup svn_url git_repo
   setup=$(create_svn_failure_fixture "rebase-fail-pull")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -74,7 +74,7 @@ EOF
   make_git_wrapper rebase_fail
   cd "$git_repo"
 
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -ne 0 ]
   [[ "$output" == *"git svn rebase failed"* ]]
 
@@ -86,7 +86,7 @@ EOF
 }
 
 # bats test_tags=docker
-@test "svn push stops before marker advance when dcommit fails" {
+@test "svn export stops before marker advance when dcommit fails" {
   local setup svn_url git_repo before_marker after_marker rev_before rev_after
   setup=$(create_svn_failure_fixture "dcommit-fail")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -95,7 +95,7 @@ EOF
   cd "$git_repo"
   echo "change" > file.txt
   git add file.txt
-  git commit -m "Change to push"
+  git commit -m "Change to export"
   git push origin main
 
   rev_before=$(svn log "$svn_url" --quiet | grep -c "^r")
@@ -103,7 +103,7 @@ EOF
 
   make_git_wrapper dcommit_fail
 
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"dcommit"* ]] || [[ "$output" == *"svn dcommit"* ]]
 

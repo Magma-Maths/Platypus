@@ -38,7 +38,7 @@ create_svn_env_fixture() {
 }
 
 # bats test_tags=docker
-@test "svn push respects REMOTE and MAIN overrides" {
+@test "svn export respects REMOTE and MAIN overrides" {
   local setup svn_url git_repo remote marker_before marker_after rev_before rev_after
   setup=$(create_svn_env_fixture "env-remote-main")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -61,7 +61,7 @@ create_svn_env_fixture() {
   marker_before=$(git rev-parse refs/remotes/remote/svn-marker)
   rev_before=$(svn log "$svn_url" --quiet | grep -c "^r")
 
-  REMOTE=remote MAIN=master run platypus svn push
+  REMOTE=remote MAIN=master run platypus svn export
   [ "$status" -eq 0 ]
 
   git fetch remote >/dev/null 2>&1
@@ -73,7 +73,7 @@ create_svn_env_fixture() {
 }
 
 # bats test_tags=docker
-@test "svn pull uses custom SVN_REMOTE_REF and SVN_BRANCH" {
+@test "svn update uses custom SVN_REMOTE_REF and SVN_BRANCH" {
   local setup svn_url git_repo remote rev_before rev_after
   setup=$(create_svn_env_fixture "env-svn-ref")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -92,7 +92,7 @@ create_svn_env_fixture() {
   svn_add_file "$svn_url" "new-svn-file.txt" "SVN change" "SVN change"
   rev_before=$(svn log "$svn_url" --quiet | grep -c "^r")
 
-  SVN_REMOTE_REF=refs/remotes/custom-svn SVN_BRANCH=mirror-svn REMOTE=remote run platypus svn pull
+  SVN_REMOTE_REF=refs/remotes/custom-svn SVN_BRANCH=mirror-svn REMOTE=remote run platypus svn update
   [ "$status" -eq 0 ]
 
   # The custom branch should now have the new file

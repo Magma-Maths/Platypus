@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2164,SC2034  # cd handled by bats; unused vars for clarity
 #
-# svn-idempotence.bats - Idempotence tests for platypus svn pull/push
+# svn-idempotence.bats - Idempotence tests for platypus svn update/export
 #
 
 load test_helper
@@ -52,7 +52,7 @@ create_svn_fixture() {
 }
 
 # bats test_tags=docker
-@test "svn push is idempotent when no new commits" {
+@test "svn export is idempotent when no new commits" {
   local setup svn_url git_repo before_revs after_revs initial_marker after_marker
   setup=$(create_svn_fixture "idempotent-push")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -62,7 +62,7 @@ create_svn_fixture() {
   initial_marker=$(cd "$git_repo" && git rev-parse origin/svn-marker)
 
   cd "$git_repo"
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ]
   git fetch origin >/dev/null 2>&1
   after_marker=$(git rev-parse origin/svn-marker)
@@ -71,7 +71,7 @@ create_svn_fixture() {
   [ "$before_revs" -eq "$after_revs" ]
 
   # Second run should also be a no-op
-  run platypus svn push
+  run platypus svn export
   [ "$status" -eq 0 ]
   git fetch origin >/dev/null 2>&1
   after_marker=$(git rev-parse origin/svn-marker)
@@ -81,7 +81,7 @@ create_svn_fixture() {
 }
 
 # bats test_tags=docker
-@test "svn pull is idempotent when no new SVN revisions" {
+@test "svn update is idempotent when no new SVN revisions" {
   local setup svn_url git_repo before_rev after_rev before_tip after_tip
   setup=$(create_svn_fixture "idempotent-pull")
   svn_url=$(echo "$setup" | cut -d'|' -f1)
@@ -91,7 +91,7 @@ create_svn_fixture() {
   before_tip=$(cd "$git_repo" && git rev-parse svn)
 
   cd "$git_repo"
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -eq 0 ]
   after_tip=$(git rev-parse svn)
   [ "$before_tip" = "$after_tip" ]
@@ -99,7 +99,7 @@ create_svn_fixture() {
   [ "$before_rev" -eq "$after_rev" ]
 
   # Second run should also be a no-op
-  run platypus svn pull
+  run platypus svn update
   [ "$status" -eq 0 ]
   after_tip=$(git rev-parse svn)
   [ "$before_tip" = "$after_tip" ]

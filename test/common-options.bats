@@ -14,7 +14,7 @@ seed_subtree_config() {
   git config -f .gitsubtrees subtree.lib/bar.branch develop
 }
 
-# Helper copied from svn-push.bats (lightweight git-svn mock)
+# Helper copied from svn-export.bats (lightweight git-svn mock)
 create_mock_svn_repo() {
   local dir
   dir=$(create_repo "repo")
@@ -106,12 +106,12 @@ create_mock_svn_repo() {
 # Debug / tracing flags
 #------------------------------------------------------------------------------
 
-@test "--debug enables verbose RUN output (svn)" {
+@test "--debug enables verbose RUN output (svn export)" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn --debug push --dry-run 2>&1 || true
+  run platypus svn --debug export --dry-run 2>&1 || true
   [[ "$output" == *">>> git fetch"* ]]
   [[ "$output" == *"dry-run"* ]] || [[ "$output" == *"DRY RUN"* ]]
 }

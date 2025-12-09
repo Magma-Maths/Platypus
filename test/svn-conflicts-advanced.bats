@@ -62,7 +62,7 @@ conflict_log_path=".git/platypus/svngit/conflicts.log"
 
   rev_before=$(svn log "$svn_url" --quiet | grep -c "^r")
 
-  run platypus svn push --push-conflicts
+  run platypus svn export --push-conflicts
   # Exit 2 = success with conflicts; allow 0 if implementation differs
   [ "$status" -eq 2 ] || [ "$status" -eq 0 ]
 
@@ -98,8 +98,8 @@ conflict_log_path=".git/platypus/svngit/conflicts.log"
 
   marker_before=$(git rev-parse origin/svn-marker)
 
-  # Initial push should stop on conflict
-  run platypus svn push
+  # Initial export should stop on conflict
+  run platypus svn export
   [ "$status" -ne 0 ]
   [ -d ".git/platypus/svngit" ]
 
@@ -108,7 +108,7 @@ conflict_log_path=".git/platypus/svngit/conflicts.log"
   git add README.txt
   git commit -m "Resolve conflict manually"
 
-  run platypus svn push --continue
+  run platypus svn export --continue
   [ "$status" -eq 0 ] || [ "$status" -eq 2 ] || [ "$status" -eq 1 ]
 
   # Best effort: check resolved content if checkout succeeds

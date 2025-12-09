@@ -12,7 +12,7 @@ load test_helper
 # Use the same state directory as the code under test
 DEFAULT_STATE_DIR=".git/platypus/svngit"
 
-# Lightweight git-svn mock (copied from svn-push.bats)
+# Lightweight git-svn mock (copied from svn-export.bats)
 create_mock_svn_repo() {
   local dir
   dir=$(create_repo "repo")
@@ -63,7 +63,7 @@ create_fake_state() {
 # Marker integrity
 #------------------------------------------------------------------------------
 
-@test "svn push initializes missing marker (dry-run)" {
+@test "svn export initializes missing marker (dry-run)" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -72,12 +72,12 @@ create_fake_state() {
   git push origin :refs/heads/svn-marker >/dev/null 2>&1 || true
   git update-ref -d refs/remotes/origin/svn-marker >/dev/null 2>&1 || true
   
-  run platypus svn push --dry-run
+  run platypus svn export --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"Marker origin/svn-marker missing"* ]] || [[ "$output" == *"Marker origin/svn-marker"* ]]
 }
 
-@test "svn push fails when marker is not ancestor of main" {
+@test "svn export fails when marker is not ancestor of main" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -94,7 +94,7 @@ create_fake_state() {
   git push origin +HEAD:main
   git fetch origin
   
-  run platypus svn push --dry-run
+  run platypus svn export --dry-run
   [ "$status" -ne 0 ]
   [[ "$output" == *"not an ancestor"* ]] || [[ "$output" == *"Stale marker"* ]]
 }

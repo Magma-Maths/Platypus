@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2164,SC2034  # cd handled by bats; unused vars for clarity
 #
-# svn-marker-edge.bats - Marker edge-case tests for platypus svn push
+# svn-marker-edge.bats - Marker edge-case tests for platypus svn export
 #
 
 load test_helper
@@ -40,7 +40,7 @@ create_mock_svn_repo() {
   echo "$dir"
 }
 
-@test "svn push fails when marker is off the first-parent path" {
+@test "svn export fails when marker is off the first-parent path" {
   local repo marker_commit
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -59,7 +59,7 @@ create_mock_svn_repo() {
   git push origin "$marker_commit:refs/heads/svn-marker" --force >/dev/null 2>&1
   git fetch origin >/dev/null 2>&1
 
-  run platypus svn push --dry-run
+  run platypus svn export --dry-run
   [ "$status" -ne 0 ]
   [[ "$output" == *"first-parent"* ]] || [[ "$output" == *"Stale marker"* ]]
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2164,SC2034  # cd failures handled by bats; unused vars are for clarity
 #
-# svn-push.bats - Tests for 'platypus svn push' command
+# svn-export.bats - Tests for 'platypus svn export' command
 #
 # NOTE: These tests verify command parsing, error handling, and state management.
 # Full integration tests require an actual SVN server.
@@ -56,24 +56,33 @@ create_mock_svn_repo() {
 # Command parsing tests
 #------------------------------------------------------------------------------
 
-@test "svn push shows help with --help" {
-  run platypus svn push --help 2>&1 || true
+@test "svn export shows help with --help" {
+  run platypus svn export --help 2>&1 || true
   [[ "$output" == *"Usage"* ]] || [[ "$output" == *"platypus svn"* ]]
+}
+
+# Legacy name should be rejected now that the command is renamed
+@test "legacy svn push subcommand is rejected" {
+  cd "$TEST_TMP"
+
+  run platypus svn push
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unknown"* ]]
 }
 
 #------------------------------------------------------------------------------
 # Error handling tests
 #------------------------------------------------------------------------------
 
-@test "push fails outside git repo" {
+@test "export fails outside git repo" {
   cd "$TEST_TMP"
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"git repository"* ]] || [[ "$output" == *"Not inside"* ]]
 }
 
-@test "svn push fails without git-svn configured" {
+@test "svn export fails without git-svn configured" {
   local repo
   repo=$(create_repo "test")
   cd "$repo"
@@ -86,12 +95,12 @@ create_mock_svn_repo() {
   # Add a remote
   git remote add origin "file://$repo"
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"SVN"* ]] || [[ "$output" == *"git-svn"* ]]
 }
 
-@test "svn push fails with dirty working tree" {
+@test "svn export fails with dirty working tree" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -100,12 +109,12 @@ create_mock_svn_repo() {
   echo "dirty" > dirty.txt
   git add dirty.txt
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"staged"* ]] || [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"changes"* ]]
 }
 
-@test "push fails with unstaged changes" {
+@test "export fails with unstaged changes" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -113,7 +122,7 @@ create_mock_svn_repo() {
   # Create unstaged changes
   echo "modified" >> file.txt
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unstaged"* ]] || [[ "$output" == *"changes"* ]]
 }
@@ -122,39 +131,39 @@ create_mock_svn_repo() {
 # Option handling tests
 #------------------------------------------------------------------------------
 
-@test "svn push accepts --verbose flag" {
+@test "svn export accepts --verbose flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --verbose 2>&1 || true
+  run platypus svn export --verbose 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn push accepts --dry-run flag" {
+@test "svn export accepts --dry-run flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --dry-run 2>&1 || true
+  run platypus svn export --dry-run 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn push accepts --push-conflicts flag" {
+@test "svn export accepts --push-conflicts flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --push-conflicts 2>&1 || true
+  run platypus svn export --push-conflicts 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn push accepts -n flag" {
+@test "svn export accepts -n flag" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push -n 2>&1 || true
+  run platypus svn export -n 2>&1 || true
   [[ "$output" != *"Unknown option"* ]]
 }
 
@@ -162,32 +171,32 @@ create_mock_svn_repo() {
 # State management tests
 #------------------------------------------------------------------------------
 
-@test "svn push --continue fails without in-progress operation" {
+@test "svn export --continue fails without in-progress operation" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --continue
+  run platypus svn export --continue
   [ "$status" -ne 0 ]
   [[ "$output" == *"No operation in progress"* ]]
 }
 
-@test "svn push --abort fails without in-progress operation" {
+@test "svn export --abort fails without in-progress operation" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --abort
+  run platypus svn export --abort
   [ "$status" -ne 0 ]
   [[ "$output" == *"No operation in progress"* ]]
 }
 
-@test "svn push --continue and --abort cannot be used together" {
+@test "svn export --continue and --abort cannot be used together" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --continue --abort 2>&1 || true
+  run platypus svn export --continue --abort 2>&1 || true
   [ "$status" -ne 0 ]
   [[ "$output" == *"both"* ]] || [[ "$output" == *"Can't use"* ]]
 }
@@ -196,12 +205,12 @@ create_mock_svn_repo() {
 # Dry run tests
 #------------------------------------------------------------------------------
 
-@test "svn push --dry-run shows DRY RUN MODE" {
+@test "svn export --dry-run shows DRY RUN MODE" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --dry-run 2>&1 || true
+  run platypus svn export --dry-run 2>&1 || true
   [[ "$output" == *"DRY RUN"* ]] || [[ "$output" == *"dry-run"* ]]
 }
 
@@ -209,14 +218,14 @@ create_mock_svn_repo() {
 # Commit list building (can test without real SVN)
 #------------------------------------------------------------------------------
 
-@test "push reports no commits when marker equals tip" {
+@test "export reports no commits when marker equals tip" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # Marker and main are at same commit, so nothing to export
   # This test might fail on SVN operations, but the message should indicate no commits
-  run platypus svn push 2>&1 || true
+  run platypus svn export 2>&1 || true
   
   # Should either succeed with "no commits" or fail on SVN (acceptable)
   # If it says "no commits" or "No new", that's the expected behavior

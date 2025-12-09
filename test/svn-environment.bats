@@ -10,7 +10,7 @@
 load test_helper
 
 #------------------------------------------------------------------------------
-# Helper: Create a mock git-svn repo (same as in svn-push.bats)
+# Helper: Create a mock git-svn repo (same as in svn-export.bats)
 #------------------------------------------------------------------------------
 create_mock_svn_repo() {
   local dir
@@ -44,10 +44,10 @@ create_mock_svn_repo() {
 # Not in a git repository
 #------------------------------------------------------------------------------
 
-@test "svn push fails outside git repo" {
+@test "svn export fails outside git repo" {
   cd "$TEST_TMP"
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"git repository"* ]] || [[ "$output" == *"Not inside"* ]]
 }
@@ -56,7 +56,7 @@ create_mock_svn_repo() {
 # Dirty worktree
 #------------------------------------------------------------------------------
 
-@test "svn push fails with unstaged changes" {
+@test "svn export fails with unstaged changes" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -64,12 +64,12 @@ create_mock_svn_repo() {
   # Create unstaged change to tracked file
   echo "modified" >> file.txt
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unstaged"* ]] || [[ "$output" == *"unstaged"* ]]
 }
 
-@test "svn push fails with staged changes" {
+@test "svn export fails with staged changes" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -78,7 +78,7 @@ create_mock_svn_repo() {
   echo "new file" > new.txt
   git add new.txt
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"staged"* ]] || [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"clean"* ]]
 }
@@ -87,7 +87,7 @@ create_mock_svn_repo() {
 # Not on correct branch
 #------------------------------------------------------------------------------
 
-@test "svn push fails when on svn-export branch" {
+@test "svn export fails when on svn-export branch" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -95,12 +95,12 @@ create_mock_svn_repo() {
   # Create and switch to svn-export branch
   git checkout -b svn-export
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"svn-export"* ]]
 }
 
-@test "svn push fails when HEAD is detached" {
+@test "svn export fails when HEAD is detached" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -108,7 +108,7 @@ create_mock_svn_repo() {
   # Create detached HEAD
   git checkout --detach HEAD
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"detached"* ]] || [[ "$output" == *"branch"* ]]
 }
@@ -117,7 +117,7 @@ create_mock_svn_repo() {
 # Not at repo root
 #------------------------------------------------------------------------------
 
-@test "svn push fails when not at repo root" {
+@test "svn export fails when not at repo root" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
@@ -126,7 +126,7 @@ create_mock_svn_repo() {
   mkdir -p subdir
   cd subdir
   
-  run platypus svn push
+  run platypus svn export
   [ "$status" -ne 0 ]
   [[ "$output" == *"top level"* ]] || [[ "$output" == *"root"* ]]
 }
@@ -157,34 +157,34 @@ create_mock_svn_repo() {
 # Modes (basic check - these would need SVN for full testing)
 #------------------------------------------------------------------------------
 
-@test "svn push --dry-run is accepted" {
+@test "svn export --dry-run is accepted" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
   # dry-run should be accepted and run without error
-  run platypus svn push --dry-run
+  run platypus svn export --dry-run
   # Should not fail with "unknown option" error
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn push --verbose is accepted" {
+@test "svn export --verbose is accepted" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --verbose
+  run platypus svn export --verbose
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }
 
-@test "svn push --quiet is accepted" {
+@test "svn export --quiet is accepted" {
   local repo
   repo=$(create_mock_svn_repo)
   cd "$repo"
   
-  run platypus svn push --quiet
+  run platypus svn export --quiet
   [[ "$output" != *"unknown option"* ]]
   [[ "$output" != *"Unknown option"* ]]
 }

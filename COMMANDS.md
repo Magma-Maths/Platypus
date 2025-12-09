@@ -15,8 +15,8 @@ showing repository states before and after each operation.
   - [subtree push](#subtree-push)
   - [subtree sync](#subtree-sync)
 - [SVN Commands](#svn-commands)
-  - [svn pull](#svn-pull)
-  - [svn push](#svn-push) — Export origin/main to SVN (no fetch/push)
+  - [svn update](#svn-update)
+  - [svn export](#svn-export) — Export origin/main to SVN (no fetch/push)
   - [svn sync](#svn-sync) — Full workflow (fetch + push + origin push)
 - [Common Scenarios](#common-scenarios)
   - [Divergent Histories](#divergent-histories)
@@ -561,8 +561,8 @@ Usage: platypus svn <command> [options]
 Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
-  pull              Pull latest changes from SVN into local mirror
-  push              Export origin/main commits to SVN and merge back (fetches origin, no git push)
+  update            Update local SVN mirror from SVN server (read-only)
+  export            Export Git commits to SVN server (does not push to Git origin)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -597,11 +597,11 @@ Conflict Tracking (for automation):
   - Conflicts are logged to CONFLICT_LOG file
 
 Examples:
-  # Pull latest SVN changes
-  platypus svn pull
+  # Update local SVN mirror from SVN server (read-only)
+  platypus svn update
 
-  # Push Git commits to SVN (auto-fetches origin)
-  platypus svn push --verbose
+  # Export Git commits to SVN server (does not push to Git origin)
+  platypus svn export --verbose
 
   # Full workflow (fetch + SVN export + push origin)
   platypus svn sync --verbose
@@ -632,7 +632,7 @@ Source is always the cached `origin/main`; run `git fetch origin` if you need th
 ```bash
 # Manual control (SVN only, you push origin yourself)
 git fetch origin
-platypus svn push
+platypus svn export
 git push origin main
 
 # One-shot (full workflow)
@@ -645,19 +645,19 @@ platypus svn sync
   - `git svn init <svn-url>`; `git svn fetch`
   - `git switch -C svn refs/remotes/git-svn`
   - `git switch -C main svn` (if empty) and push once: `git push origin main`
-  - `git fetch origin`; run `platypus svn push` (or `platypus svn sync`)
+  - `git fetch origin`; run `platypus svn export` (or `platypus svn sync`)
 
 - Fresh git-svn init, origin/main already has commits:
   - `git svn init <svn-url>`; `git svn fetch`
   - `git switch -C svn refs/remotes/git-svn`
   - Optionally merge `svn` into `main` if you need SVN tip included, then push
-  - `git fetch origin`; run `platypus svn push` (or `platypus svn sync`)
+  - `git fetch origin`; run `platypus svn export` (or `platypus svn sync`)
 
-### Push vs sync at a glance
+### Export vs sync at a glance
 
 | Command | Fetch origin | SVN export | Local merge | Push origin | Best for |
 |---------|:------------:|:----------:|:-----------:|:-----------:|----------|
-| `svn push` | - | ✓ | ✓ | - | CI with pre-fetch, manual control |
+| `svn export` | - | ✓ | ✓ | - | CI with pre-fetch, manual control |
 | `svn sync` | ✓ | ✓ | ✓ | ✓ | One-command convenience |
 
 ### Conceptual Overview
@@ -686,21 +686,21 @@ platypus svn sync
 
 ---
 
-### svn pull
+### svn update
 
-**Purpose:** Pull latest changes from SVN into the local mirror.
+**Purpose:** Update the local SVN mirror from the SVN server (read-only).
 
 **Usage:**
 
 ```bash
-platypus svn pull
+platypus svn update
 ```
 
 **What it does:**
 
 1. Fetches latest state from the Git remote (for marker tracking)
-2. Pulls latest SVN changes using `git svn rebase`
-3. Reports how many commits are pending to push
+2. Updates the SVN mirror using `git svn rebase`
+3. Reports how many commits are pending to export
 
 **Before:**
 
@@ -728,14 +728,14 @@ The `svn` branch now has the new SVN revision as a Git commit.
 
 ---
 
-### svn push
+### svn export
 
 **Purpose:** Export commits from `origin/main` to SVN and merge back locally. Auto-fetches origin; does not push to origin.
 
 **Usage:**
 
 ```bash
-platypus svn push [--push-conflicts]
+platypus svn export [--push-conflicts]
 ```
 
 **What it does:**
@@ -807,7 +807,7 @@ platypus svn sync [--push-conflicts]
 **What it does:**
 
 1. Fetches latest `origin/main`
-2. Runs the `svn push` pipeline described above
+2. Runs the `svn export` pipeline described above
 3. Pushes `main` to origin
 
 **Typical workflow:**
@@ -833,7 +833,7 @@ git push origin main
 git status           # fix conflicts
 git add <files>
 git rebase --continue
-platypus svn push --continue
+platypus svn export --continue
 ```
 
 - Stale marker after rewritten history:
@@ -894,24 +894,24 @@ git commit
 
 **SVN conflicts:**
 
-If push fails to apply a patch:
+If export fails to apply a patch:
 
 ```bash
-platypus svn push
+platypus svn export
 # Patch apply failed!
 # Options:
-#   1. Fix manually and run: platypus svn push --continue
-#   2. Abort: platypus svn push --abort
-#   3. Force through: platypus svn push --push-conflicts
+#   1. Fix manually and run: platypus svn export --continue
+#   2. Abort: platypus svn export --abort
+#   3. Force through: platypus svn export --push-conflicts
 ```
 
 **SVN race condition:**
 
-If someone else commits to SVN while you're pushing, `git svn dcommit` will fail
+If someone else commits to SVN while you're exporting, `git svn dcommit` will fail
 and leave you in a rebase state with conflicts:
 
 ```bash
-platypus svn push
+platypus svn export
 # SVN dcommit failed: someone else committed to SVN (race condition).
 # You are now in a rebase state with conflicts.
 # Options:
@@ -920,9 +920,9 @@ platypus svn push
 #      # ... fix conflicts ...
 #      git add <files>                 # Stage fixes
 #      git rebase --continue           # Complete rebase
-#      platypus svn push --continue    # Resume push
-#   2. Abort: platypus svn push --abort
-#   3. Force through: platypus svn push --push-conflicts
+#      platypus svn export --continue  # Resume export
+#   2. Abort: platypus svn export --abort
+#   3. Force through: platypus svn export --push-conflicts
 ```
 
 The `--push-conflicts` option will:
@@ -992,8 +992,8 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
 | `platypus subtree sync <prefix>` | Pull then push |
 | `platypus subtree status [prefix]` | Show sync status |
 | `platypus subtree list` | List configured subtrees |
-| `platypus svn pull` | Pull from SVN |
-| `platypus svn push` | Export origin/main to SVN (no fetch/push origin) |
+| `platypus svn update` | Update local SVN mirror from SVN server (read-only) |
+| `platypus svn export` | Export origin/main to SVN (no fetch/push origin) |
 | `platypus svn sync` | Fetch origin, export to SVN, push origin |
-| `platypus svn push --continue` | Resume after conflict |
-| `platypus svn push --abort` | Abort in-progress push |
+| `platypus svn export --continue` | Resume after conflict |
+| `platypus svn export --abort` | Abort in-progress export |
