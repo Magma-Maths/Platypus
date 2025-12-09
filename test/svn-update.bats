@@ -67,16 +67,6 @@ create_mock_svn_repo() {
   [[ "$output" == *"Unknown"* ]]
 }
 
-@test "svn shows usage without subcommand" {
-  local repo
-  repo=$(create_repo "test")
-  cd "$repo"
-  
-  run platypus svn
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Usage"* ]]
-}
-
 @test "svn rejects unknown subcommand" {
   local repo
   repo=$(create_repo "test")

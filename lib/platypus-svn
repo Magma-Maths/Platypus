@@ -237,38 +237,37 @@ svn:version() {
 # State management functions (for --continue/--abort):
 #------------------------------------------------------------------------------
 
-# Save current state for resumption:
+# Variables to persist. Format: "VARIABLE_NAME:filename"
+STATE_VARS=(
+  "original_branch:original-branch"
+  "BASE:base"
+  "TIP:tip"
+  "COMMITS:commits-remaining"
+  "current_commit:current-commit"
+  "had_conflicts:had-conflicts"
+)
+
 state:save() {
   mkdir -p "$STATE_DIR"
-  echo "$original_branch" > "$STATE_DIR/original-branch"
-  echo "$BASE" > "$STATE_DIR/base"
-  echo "$TIP" > "$STATE_DIR/tip"
-  echo "$COMMITS" > "$STATE_DIR/commits-remaining"
-  echo "$current_commit" > "$STATE_DIR/current-commit"
-  echo "$had_conflicts" > "$STATE_DIR/had-conflicts"
+  local var file
+  for item in "${STATE_VARS[@]}"; do
+    IFS=':' read -r var file <<< "$item"
+    echo "${!var}" > "$STATE_DIR/$file"
+  done
 }
 
-# Load saved state:
 state:load() {
-  if [[ -f "$STATE_DIR/original-branch" ]]; then
-    original_branch=$(cat "$STATE_DIR/original-branch")
-  fi
-  if [[ -f "$STATE_DIR/base" ]]; then
-    BASE=$(cat "$STATE_DIR/base")
-  fi
-  if [[ -f "$STATE_DIR/tip" ]]; then
-    TIP=$(cat "$STATE_DIR/tip")
-  fi
-  if [[ -f "$STATE_DIR/commits-remaining" ]]; then
-    COMMITS=$(cat "$STATE_DIR/commits-remaining")
-  fi
-  if [[ -f "$STATE_DIR/current-commit" ]]; then
-    current_commit=$(cat "$STATE_DIR/current-commit")
-  fi
-   if [[ -f "$STATE_DIR/had-conflicts" ]]; then
-     had_conflicts=$(cat "$STATE_DIR/had-conflicts")
-   fi
+  local var file
+  for item in "${STATE_VARS[@]}"; do
+    IFS=':' read -r var file <<< "$item"
+    if [[ -f "$STATE_DIR/$file" ]]; then
+      local value
+      value=$(cat "$STATE_DIR/$file")
+      printf -v "$var" '%s' "$value"
+    fi
+  done
 }
+
 
 # Clear saved state:
 state:clear() {
@@ -280,11 +279,10 @@ state:exists() {
   [[ -d "$STATE_DIR" ]]
 }
 
-# Update remaining commits (remove processed ones):
 state:update-commits() {
-  local processed_commit=$1
-  # Remove the processed commit from the list
-  COMMITS=$(echo "$COMMITS" | grep -v "^$processed_commit$" || true)
+  local processed=$1
+  # Filter out the processed commit and save immediately
+  COMMITS=$(echo "$COMMITS" | grep -v "^$processed$" || true)
   echo "$COMMITS" > "$STATE_DIR/commits-remaining"
 }
 
@@ -599,101 +597,58 @@ sync:prepare-export-branch() {
   fi
 }
 
-# Export a single commit to the export branch:
-sync:export-commit() {
-  local commit=$1
-  local p1=$2
-  local commit_had_conflict=false
-  local conflict_type=""
 
+sync:export-commit() {
+  local commit=$1 p1=$2
+  local conflict_type=""
+  
   o "Export commit $(git:short-hash "$commit")"
   current_commit=$commit
 
-  # In dry-run mode, skip actual patch application
   if $dry_run; then
     say "  [dry-run] Would export: $(git:short-hash "$commit")"
     return 0
   fi
 
-  # Try 1: Normal apply
-  if git diff --binary "$p1" "$commit" | git apply --index 2>/dev/null; then
-    : # Success - normal apply worked
-  
-  # Try 2: 3-way merge (with --push-conflicts)
-  elif $push_conflicts && git diff --binary "$p1" "$commit" | git apply --3way --index 2>/dev/null; then
-    say "  Warning: Applied with conflicts: $(git:short-hash "$commit")"
-    commit_had_conflict=true
-    conflict_type="patch-3way"
-  
-  # Try 3: Reject mode (with --push-conflicts)
-  elif $push_conflicts; then
-    if git diff --binary "$p1" "$commit" | git apply --reject --index 2>/dev/null; then
-      git add -A  # Add partial changes
-      say "  Warning: Partially applied (see .rej files): $(git:short-hash "$commit")"
-      commit_had_conflict=true
-      conflict_type="patch-reject"
-    else
-      # Even reject mode failed, but we're in push-conflicts mode
-      git add -A 2>/dev/null || true
-      say "  Warning: Failed to apply, continuing anyway: $(git:short-hash "$commit")"
-      commit_had_conflict=true
-      conflict_type="patch-failed"
-    fi
-  
-  else
-    # All strategies failed and not in push-conflicts mode
-    state:save
-    err ""
-    err "Failed to apply commit $(git:short-hash "$commit")"
-    err ""
-    err "To resolve manually:"
-    err "  1. Inspect: git diff $p1 $commit"
-    err "  2. Apply with conflicts: git diff --binary $p1 $commit | git apply --3way"
-    err "  3. Fix conflicts, then: git add -A && git commit"
-    err "  4. Resume: platypus svn export --continue"
-    err ""
-    err "Or abort: platypus svn export --abort"
-    err "Or retry with: platypus svn export --push-conflicts"
-    error "Patch apply failed"
-  fi
+  # Attempt application using helper
+  git:try-apply-patch "$p1" "$commit"
+  case $? in
+    0)   ;; # Clean success
+    1)   say "  Warning: Applied with conflicts (3-way): $(git:short-hash "$commit")"
+         conflict_type="patch-3way" ;;
+    2)   say "  Warning: Partially applied (rejects): $(git:short-hash "$commit")"
+         conflict_type="patch-reject" ;;
+    128) state:save
+         err ""
+         err "Failed to apply commit $(git:short-hash "$commit"). Manual resolution required."
+         error "Patch apply failed" ;;
+  esac
 
-  # Skip commits with empty exported diff
+  # Skip empty exports
   if git diff --cached --quiet; then
     RUN git reset --hard -q
     say "  Skip empty export: $(git:short-hash "$commit")"
     return 1
   fi
 
-  # Keep original message and attribution
-  local msg author adate cdate
+  # Prepare metadata
+  local msg author adate cdate conflict_prefix=""
   msg="$(git log -1 --pretty=%B "$commit")"
   author="$(git show -s --format='%an <%ae>' "$commit")"
   adate="$(git show -s --format=%aI "$commit")"
   cdate="$(git show -s --format=%cI "$commit")"
 
-  # Mark commit message if it had conflicts
-  local conflict_prefix=""
-  if $commit_had_conflict; then
+  if [[ -n "$conflict_type" ]]; then
     conflict_prefix="[CONFLICT] "
-  fi
-
-  # Commit the exported patch
-  GIT_AUTHOR_DATE="$adate" GIT_COMMITTER_DATE="$cdate" \
-    RUN git commit --author="$author" -m "${conflict_prefix}${msg}"
-
-  # Log conflict and add git note if there was a conflict
-  if $commit_had_conflict; then
     conflict:mark "$commit" "$conflict_type"
   fi
 
-  say "  Exported: $(git:short-hash "$commit") -> $(git log -1 --pretty=%s "$commit" | head -c 50)"
-  
-  # Update state to mark this commit as processed
-  if state:exists; then
-    state:update-commits "$commit"
-  fi
-  
-  return 0
+  # Commit
+  GIT_AUTHOR_DATE="$adate" GIT_COMMITTER_DATE="$cdate" \
+    RUN git commit --author="$author" -m "${conflict_prefix}${msg}"
+
+  say "  Exported: $(git:short-hash "$commit")"
+  state:update-commits "$commit"
 }
 
 # Execute the current export plan (uses COMMITS or PLAN_COMMITS):
@@ -755,6 +710,32 @@ git:complete-rebase-with-conflicts() {
       git rebase --skip 2>/dev/null || break
     fi
   done
+}
+
+# Returns: 0=clean apply, 1=applied with conflicts (3-way), 2=applied with rejects, 128=failed
+git:try-apply-patch() {
+  local p1=$1 commit=$2
+
+  # 1. Try normal apply
+  git diff --binary "$p1" "$commit" | git apply --index 2>/dev/null && return 0
+
+  # Stop here if we aren't forcing conflicts
+  $push_conflicts || return 128
+
+  # 2. Try 3-way merge
+  if git diff --binary "$p1" "$commit" | git apply --3way --index 2>/dev/null; then
+    return 1
+  fi
+
+  # 3. Try reject mode
+  if git diff --binary "$p1" "$commit" | git apply --reject --index 2>/dev/null; then
+    git add -A
+    return 2
+  fi
+
+  # 4. Last resort: add whatever mess resulted (if reject failed but partially applied)
+  git add -A 2>/dev/null || true
+  return 2
 }
 
 # Push commits to SVN via dcommit:
@@ -1052,7 +1033,7 @@ svn:main() {
   svn:parse-specific-options "$@"
 
   # Parse common options to set verbose_wanted, quiet_wanted, debug_wanted
-  common:parse-options "${svn_specific_args[@]}"
+  common:parse-options "${svn_specific_args[@]:-}"
   eval "set -- \"\${COMMON_PARSE_OPTIONS_REMAINING[@]}\""
   
   # Verbose implies not quiet
