@@ -90,11 +90,19 @@ current_commit=         # Current commit being processed (for state save)
 cleanup() {
   local exit_code=${1:-$?}
   
-  # Prevent double cleanup or cleanup during continue/abort command execution
-  if $cleanup_invoked || $continue_mode || $abort_mode; then
+  # Prevent double cleanup
+  if $cleanup_invoked; then
     exit "$exit_code"
   fi
   cleanup_invoked=true
+
+  # Continue/abort commands manage their own flow; still clear state on success
+  if $continue_mode || $abort_mode; then
+    if [[ $exit_code -eq 0 ]]; then
+      state:clear
+    fi
+    exit "$exit_code"
+  fi
 
   # 1. Restore Branch
   # Determine target: Memory var -> Disk state -> Default to SVN branch
@@ -489,6 +497,8 @@ sync:update-svn-mirror() {
   run_git "Rebase from SVN" svn rebase ||
     error "git svn rebase failed. Check SVN server connectivity and authentication."
 }
+
+
 
 # Initialize marker branch if it doesn't exist:
 sync:init-marker() {
