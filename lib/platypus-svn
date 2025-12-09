@@ -1076,8 +1076,3 @@ svn:main() {
   # Use common dispatch for the rest (module-scoped usage/version)
   common:dispatch svn:usage svn:version svn:dispatch "$@"
 }
-
-#------------------------------------------------------------------------------
-# Entry point:
-#------------------------------------------------------------------------------
-
