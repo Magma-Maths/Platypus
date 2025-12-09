@@ -25,8 +25,8 @@
 # Many variables here are used indirectly via dynamic references or exported
 # shellcheck disable=2034,2154
 
-# Exit on any errors:
-set -e
+# Exit on errors, undefined vars, or broken pipelines:
+set -euo pipefail
 
 #------------------------------------------------------------------------------
 # Source shared utilities:
@@ -69,6 +69,7 @@ svn:ensure-globals() {
 push_conflicts=false    # Continue through conflicts, push with markers
 continue_mode=false     # Resume from saved state
 abort_mode=false        # Abort and clean up
+cleanup_invoked=false   # Guard to avoid double cleanup
 
 TIP=                    # HEAD commit of origin/main
 BASE=                   # Last exported commit (marker position)
@@ -86,12 +87,18 @@ current_commit=         # Current commit being processed (for state save)
 
 # Cleanup function called on exit or interrupt:
 cleanup() {
-  local exit_code=$?
+  local exit_code=${1:-$?}
   local current_branch
+
+  # Prevent double cleanup (e.g., ERR + EXIT)
+  if $cleanup_invoked; then
+    exit "$exit_code"
+  fi
+  cleanup_invoked=true
 
   # Don't run cleanup if we're in continue/abort mode (they handle their own cleanup)
   if $continue_mode || $abort_mode; then
-    exit $exit_code
+    exit "$exit_code"
   fi
 
   # Get current branch (might be on export branch)
@@ -127,15 +134,23 @@ cleanup() {
     fi
   fi
 
-  exit $exit_code
+  exit "$exit_code"
 }
 
 # Set up trap for cleanup on exit and signals:
-trap cleanup EXIT INT TERM
+trap 'cleanup $?' EXIT ERR INT TERM
 
 #------------------------------------------------------------------------------
 # Utility functions (say, o, err, error, RUN are in platypus-common.bash):
 #------------------------------------------------------------------------------
+
+# Wrapper to run git commands with step logging:
+run_git() {
+  local desc=$1
+  shift
+  o "$desc"
+  RUN git "$@"
+}
 
 # Print usage and exit:
 svn:usage() {
@@ -146,7 +161,7 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   update            Update local SVN mirror from SVN server (read-only)
-  export            Export Git commits to SVN server (does not push to Git origin)
+  export            Fetch origin/main, export to SVN (does not push to Git origin)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -323,7 +338,7 @@ conflict:report-outcome() {
     say "Commits with conflicts are prefixed with [CONFLICT] in commit messages."
     say "Conflict log: $CONFLICT_LOG"
     say "Someone should resolve these in both Git and SVN repositories."
-    exit $EXIT_CONFLICTS
+    exit "$EXIT_CONFLICTS"
   fi
 }
 
@@ -456,8 +471,7 @@ sync:fetch() {
   git remote get-url "$REMOTE" &>/dev/null ||
     error "Remote '$REMOTE' does not exist. Check REMOTE variable."
 
-  o "Fetch latest state from $REMOTE"
-  RUN git fetch --prune "$REMOTE" ||
+  run_git "Fetch latest state from $REMOTE" fetch --prune "$REMOTE" ||
     error "Failed to fetch from '$REMOTE'. Check network connection."
 
   # Verify main branch exists on remote
@@ -490,15 +504,14 @@ sync:update-svn-mirror() {
   Try: git svn init <svn-url>"
 
   say "Updating SVN mirror branch '$SVN_BRANCH'..."
-  o "Switch to $SVN_BRANCH tracking $SVN_REMOTE_REF"
-  RUN git switch -C "$SVN_BRANCH" "$SVN_REMOTE_REF"
+  run_git "Switch to $SVN_BRANCH tracking $SVN_REMOTE_REF" switch -C "$SVN_BRANCH" "$SVN_REMOTE_REF"
 
   o "Rebase from SVN"
   if $dry_run; then
     say "[dry-run] Would run: git svn rebase"
     return 0
   fi
-  RUN git svn rebase ||
+  run_git "Rebase from SVN" svn rebase ||
     error "git svn rebase failed. Check SVN server connectivity and authentication."
 }
 
@@ -585,7 +598,7 @@ sync:build-commit-list() {
 # Prepare the export branch from SVN tip:
 sync:prepare-export-branch() {
   o "Create export branch '$EXPORT_BRANCH' from $SVN_BRANCH"
-  RUN git switch -C "$EXPORT_BRANCH" "$SVN_BRANCH"
+  run_git "Create export branch '$EXPORT_BRANCH' from $SVN_BRANCH" switch -C "$EXPORT_BRANCH" "$SVN_BRANCH"
 
 # Safeguard: ensure export branch starts clean
   if ! $dry_run; then
@@ -714,7 +727,7 @@ sync:export-commits() {
   for commit in $COMMITS; do
     # Parse commit parents to get first parent
     read -ra line <<<"$(git rev-list --parents -n 1 "$commit")"
-    p1="${line[1]}"
+    p1="${line[1]:-}"
 
     if sync:export-commit "$commit" "$p1"; then
       ((exported++)) || true
@@ -800,8 +813,8 @@ sync:dcommit() {
 
   # Refresh SVN mirror after dcommit
   o "Refresh SVN mirror"
-  RUN git switch "$SVN_BRANCH"
-  RUN git svn rebase
+  run_git "Switch to $SVN_BRANCH after dcommit" switch "$SVN_BRANCH"
+  run_git "Rebase SVN mirror after dcommit" svn rebase
 }
 
 # Advance the marker to the new tip:
@@ -825,8 +838,7 @@ sync:merge-back() {
   fi
 
   say "Merging SVN changes back to $MAIN..."
-  o "Switch to $MAIN from $REMOTE/$MAIN"
-  RUN git switch -C "$MAIN" "$REMOTE/$MAIN"
+  run_git "Switch to $MAIN from $REMOTE/$MAIN" switch -C "$MAIN" "$REMOTE/$MAIN"
 
   o "Merge $SVN_BRANCH into $MAIN"
   if ! git merge --no-ff "$SVN_BRANCH" -m "Merge SVN into $MAIN" 2>/dev/null; then
@@ -920,10 +932,9 @@ pipeline:push() {
   # Step 3: Ensure marker exists
   sync:init-marker
   
-  # Step 4: Build export plan
+  # Step 4: Build export plan (first-parent)
   if ! plan:build-export-plan; then
-    # Return to original branch
-    if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
+    if [[ $original_branch ]]; then
       RUN git switch "$original_branch"
     fi
     original_branch=
@@ -938,8 +949,8 @@ pipeline:push() {
   # Step 6: Execute export plan
   if ! execute:export-plan; then
     say "No commits exported; leaving marker at $(git:short-hash "$BASE")."
-    # Return to original branch
-    if [[ $original_branch && $original_branch != "$MAIN" ]]; then
+    if [[ $original_branch ]]; then
+      o "Returning to original branch: $original_branch"
       RUN git switch "$original_branch"
     fi
     original_branch=
@@ -972,7 +983,6 @@ pipeline:push() {
 
 pipeline:sync() {
   # Full workflow wrapper (fetch + push + push origin)
-  sync:fetch
   pipeline:push
 
   # Push main to origin after successful SVN export
@@ -981,8 +991,7 @@ pipeline:sync() {
     return 0
   fi
 
-  o "Push $MAIN to $REMOTE"
-  RUN git push "$REMOTE" "$MAIN" ||
+  run_git "Push $MAIN to $REMOTE" push "$REMOTE" "$MAIN" ||
     error "Failed to push $MAIN. Someone may have pushed first.
   Try: git pull --rebase && git push"
 }
@@ -991,7 +1000,6 @@ pipeline:sync() {
 # Command functions (update/export entrypoints):
 #------------------------------------------------------------------------------
 
-# Update local SVN mirror from SVN server (read-only):
 svn:command:update() {
   say "=== platypus svn update v${PLATYPUS_VERSION:-unknown} ==="
   $dry_run && say "[DRY RUN MODE]"
@@ -1001,7 +1009,6 @@ svn:command:update() {
   pipeline:pull
 }
 
-# Export Git commits to SVN:
 svn:command:export() {
   say "=== platypus svn export v${PLATYPUS_VERSION:-unknown} ==="
   $dry_run && say "[DRY RUN MODE]"
@@ -1019,7 +1026,6 @@ svn:command:export() {
   pipeline:push
 }
 
-# Full workflow: fetch, SVN export, merge, push to origin
 svn:command:sync() {
   say "=== platypus svn sync v${PLATYPUS_VERSION:-unknown} ==="
   $dry_run && say "[DRY RUN MODE]"
@@ -1136,13 +1142,13 @@ svn:main() {
 
   # Handle --abort early (no subcommand needed)
   if $abort_mode; then
-    svn:command:abort
+    svn:command:abort "$@"
     return 0
   fi
 
   # Handle --continue early (no subcommand needed)
   if $continue_mode; then
-    svn:command:continue
+    svn:command:continue "$@"
     return 0
   fi
   

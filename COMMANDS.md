@@ -16,7 +16,7 @@ showing repository states before and after each operation.
   - [subtree sync](#subtree-sync)
 - [SVN Commands](#svn-commands)
   - [svn update](#svn-update)
-  - [svn export](#svn-export) — Export origin/main to SVN (no fetch/push)
+  - [svn export](#svn-export) — Export origin/main to SVN (fetches origin; no origin push)
   - [svn sync](#svn-sync) — Full workflow (fetch + push + origin push)
 - [Common Scenarios](#common-scenarios)
   - [Divergent Histories](#divergent-histories)
@@ -562,7 +562,7 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   update            Update local SVN mirror from SVN server (read-only)
-  export            Export Git commits to SVN server (does not push to Git origin)
+  export            Fetch origin/main, export to SVN (does not push to Git origin)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -627,11 +627,10 @@ Changes flow: Git → SVN, and SVN metadata flows back into Git.
 
 ### Quick start (SVN)
 
-Source is always the cached `origin/main`; run `git fetch origin` if you need the latest before exporting.
+`svn export` and `svn sync` fetch `origin/main` at the start; manual `git fetch origin` is optional.
 
 ```bash
 # Manual control (SVN only, you push origin yourself)
-git fetch origin
 platypus svn export
 git push origin main
 
@@ -639,25 +638,27 @@ git push origin main
 platypus svn sync
 ```
 
+Workflow summary: update = refresh local SVN mirror and show pending commits; export = fetch origin/main, export to SVN, and merge back locally (no origin push); sync = export plus push `main` to origin.
+
 #### First sync scenarios
 
 - Fresh git-svn init, origin/main empty or only SVN mirror:
   - `git svn init <svn-url>`; `git svn fetch`
   - `git switch -C svn refs/remotes/git-svn`
   - `git switch -C main svn` (if empty) and push once: `git push origin main`
-  - `git fetch origin`; run `platypus svn export` (or `platypus svn sync`)
+  - Run `platypus svn export` (or `platypus svn sync`, auto-fetches origin/main)
 
 - Fresh git-svn init, origin/main already has commits:
   - `git svn init <svn-url>`; `git svn fetch`
   - `git switch -C svn refs/remotes/git-svn`
   - Optionally merge `svn` into `main` if you need SVN tip included, then push
-  - `git fetch origin`; run `platypus svn export` (or `platypus svn sync`)
+  - Run `platypus svn export` (or `platypus svn sync`, auto-fetches origin/main)
 
 ### Export vs sync at a glance
 
 | Command | Fetch origin | SVN export | Local merge | Push origin | Best for |
 |---------|:------------:|:----------:|:-----------:|:-----------:|----------|
-| `svn export` | - | ✓ | ✓ | - | CI with pre-fetch, manual control |
+| `svn export` | ✓ | ✓ | ✓ | - | CI with pre-fetch, manual control |
 | `svn sync` | ✓ | ✓ | ✓ | ✓ | One-command convenience |
 
 ### Conceptual Overview
@@ -993,7 +994,7 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
 | `platypus subtree status [prefix]` | Show sync status |
 | `platypus subtree list` | List configured subtrees |
 | `platypus svn update` | Update local SVN mirror from SVN server (read-only) |
-| `platypus svn export` | Export origin/main to SVN (no fetch/push origin) |
+| `platypus svn export` | Export origin/main to SVN (fetches origin; no origin push) |
 | `platypus svn sync` | Fetch origin, export to SVN, push origin |
 | `platypus svn export --continue` | Resume after conflict |
 | `platypus svn export --abort` | Abort in-progress export |
