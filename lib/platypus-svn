@@ -167,8 +167,8 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   update            Update local SVN mirror from SVN server (read-only)
-  export            Fetch origin/main, export to SVN (does not push to Git origin)
-  sync              Full workflow: fetch origin, export to SVN, push origin
+  export            Export origin/main to SVN (fetches origin; no origin push after the fact)
+  sync              Full workflow: fetch origin, update SVN mirror, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
 
@@ -487,20 +487,6 @@ sync:fetch() {
   o "Remote tip: $(git:short-hash "$TIP")"
 }
 
-# Set TIP from the locally cached remote ref (assumes user fetched already)
-sync:set-tip-from-remote() {
-  # Verify remote exists
-  git remote get-url "$REMOTE" &>/dev/null ||
-    error "Remote '$REMOTE' does not exist. Check REMOTE variable."
-
-  # Verify main branch exists on remote (cached)
-  git:remote-ref-exists "refs/remotes/$REMOTE/$MAIN" ||
-    error "Branch '$MAIN' not found on remote '$REMOTE'. Check MAIN variable."
-
-  TIP="$(git rev-parse "$REMOTE/$MAIN")"
-  o "Remote tip (cached): $(git:short-hash "$TIP")"
-}
-
 # Update local SVN mirror branch to match SVN trunk:
 sync:update-svn-mirror() {
   # Verify SVN remote ref exists
@@ -595,18 +581,6 @@ plan:build() {
   fi
 
   plan:describe-export-plan
-  return 0
-}
-
-# Backwards-compatible wrapper used by existing pipeline
-sync:build-commit-list() {
-  if ! plan:build-export-plan; then
-    COMMITS=""
-    return 1
-  fi
-
-  plan:describe-export-plan
-  COMMITS="$PLAN_COMMITS"
   return 0
 }
 
@@ -902,27 +876,14 @@ pipeline:prepare() {
 pipeline:update() {
   pipeline:prepare
 
-  # Show what commits are available to export
-  local pending_commits pending_count
-  pending_commits=$(git rev-list --first-parent "$BASE..$TIP" 2>/dev/null || true)
-  if [[ -n "$pending_commits" ]]; then
-    pending_count=$(echo "$pending_commits" | wc -l | tr -d ' ')
+  if plan:build-export-plan; then
     say ""
-    say "SVN mirror updated. $pending_count commit(s) pending to export."
-    say "Run 'platypus svn export' to export them to SVN (or 'platypus svn sync' for full workflow)."
+    say "SVN mirror updated. $PLAN_COUNT commit(s) pending export."
+    say "Run 'platypus svn export' to send them to SVN."
   else
     say ""
-    say "SVN mirror updated. No commits pending."
+    say "SVN mirror updated. No pending commits."
   fi
-
-  # Return to original branch
-  if [[ $original_branch && $original_branch != "$SVN_BRANCH" ]]; then
-    o "Returning to original branch: $original_branch"
-    RUN git switch "$original_branch"
-  fi
-
-  # Clear for cleanup trap
-  original_branch=
 
   say "=== Done: SVN update complete ==="
   return 0
@@ -933,10 +894,6 @@ pipeline:export() {
 
   # Build export plan (first-parent)
   if ! plan:build; then
-    if [[ $original_branch ]]; then
-      RUN git switch "$original_branch"
-    fi
-    original_branch=
     return 0
   fi
   state:materialize-plan
@@ -945,11 +902,6 @@ pipeline:export() {
   sync:prepare-export-branch
   if ! sync:export-commits; then
     say "No commits exported; leaving marker at $(git:short-hash "$BASE")."
-    if [[ $original_branch ]]; then
-      o "Returning to original branch: $original_branch"
-      RUN git switch "$original_branch"
-    fi
-    original_branch=
     return 0
   fi
 
@@ -957,15 +909,6 @@ pipeline:export() {
   sync:dcommit
   sync:advance-marker
   sync:merge-back
-
-  # Return to original branch
-  if [[ $original_branch && $original_branch != "$MAIN" ]]; then
-    o "Returning to original branch: $original_branch"
-    RUN git switch "$original_branch"
-  fi
-
-  # Clear original_branch so cleanup trap doesn't try to switch again
-  original_branch=
 
   say "=== Done: exported $(git:short-hash "$BASE")..$(git:short-hash "$TIP") to SVN ==="
 

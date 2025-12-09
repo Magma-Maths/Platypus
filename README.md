@@ -214,7 +214,9 @@ platypus subtree status
                      (git subtree split --onto=<cached> + push)
 
 6. Sync to SVN:      platypus svn export
-                     (exports all monorepo changes back to SVN)
+                     (fetches origin/main, exports to SVN; does not push Git origin)
+   Full sync:        platypus svn sync
+                     (fetches origin/main, exports to SVN, then pushes origin/main)
 ```
 
 **Workflow (Add External Library):**
