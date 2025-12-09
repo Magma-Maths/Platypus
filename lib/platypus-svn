@@ -739,56 +739,44 @@ git:try-apply-patch() {
   return 2
 }
 
-# Push commits to SVN via dcommit:
-sync:dcommit() {
-  if ! git rev-parse --verify -q HEAD >/dev/null; then
-    say "Nothing committed on $EXPORT_BRANCH; nothing to dcommit."
-    return 1
-  fi
+# Handle the specific case where dcommit fails due to an upstream change causing a rebase
+sync:handle-dcommit-race() {
+  git:rebase-in-progress || return 1 # Not a race if no rebase
 
-  if $dry_run; then
-    say "[dry-run] Would run: git svn dcommit"
-    return 0
+  if $push_conflicts; then
+    say "Warning: SVN race condition, resolving with conflict markers"
+    git:complete-rebase-with-conflicts
+    conflict:mark HEAD "dcommit-race"
+    say "Retrying dcommit..."
+    RUN git svn dcommit || error "git svn dcommit still failed after resolving rebase."
+  else
+    state:save
+    err "" "SVN dcommit failed: race condition detected (rebase state)."
+    err "  1. Fix conflicts (git status)"
+    err "  2. Resume: platypus svn export --continue"
+    err "  OR Auto-resolve: platypus svn export --push-conflicts"
+    error "git svn dcommit failed due to SVN race condition."
   fi
+}
+
+sync:dcommit() {
+  git rev-parse --verify -q HEAD >/dev/null || { say "Nothing committed to dcommit."; return 1; }
+  $dry_run && { say "[dry-run] Would run: git svn dcommit"; return 0; }
 
   say "Pushing to SVN..."
   o "git svn dcommit"
+  
+  # Try dcommit; if it fails, attempt to handle race condition
   if ! git svn dcommit; then
-    # Check if dcommit failed due to race condition (leaves us in rebase state)
-    if git:rebase-in-progress; then
-      if $push_conflicts; then
-        say "Warning: SVN race condition, resolving with conflict markers"
-        git:complete-rebase-with-conflicts
-        conflict:mark HEAD "dcommit-race"
-        say "Retrying dcommit..."
-        RUN git svn dcommit ||
-          error "git svn dcommit still failed after resolving rebase."
-      else
-        state:save
-        err ""
-        err "SVN dcommit failed: someone else committed to SVN (race condition)."
-        err "You are in a rebase state with conflicts."
-        err ""
-        err "To resolve manually:"
-        err "  1. Fix conflicts: git status"
-        err "  2. Stage fixes: git add <files>"
-        err "  3. Continue rebase: git rebase --continue"
-        err "  4. Resume: platypus svn export --continue"
-        err ""
-        err "Or with conflict markers: platypus svn export --push-conflicts"
-        err "Or abort: platypus svn export --abort"
-        error "git svn dcommit failed due to SVN race condition."
-      fi
-    else
-      error "git svn dcommit failed. Check SVN permissions and connectivity."
-    fi
+    sync:handle-dcommit-race || error "git svn dcommit failed. Check permissions/connectivity."
   fi
 
   # Refresh SVN mirror after dcommit
   o "Refresh SVN mirror"
-  run_git "Switch to $SVN_BRANCH after dcommit" switch "$SVN_BRANCH"
-  run_git "Rebase SVN mirror after dcommit" svn rebase
+  run_git "Switch to $SVN_BRANCH" switch "$SVN_BRANCH"
+  run_git "Rebase SVN mirror" svn rebase
 }
+
 
 # Advance the marker to the new tip:
 sync:advance-marker() {
