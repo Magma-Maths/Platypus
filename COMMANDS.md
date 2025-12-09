@@ -22,7 +22,6 @@ showing repository states before and after each operation.
   - [Divergent Histories](#divergent-histories)
   - [Conflict Resolution](#conflict-resolution)
 
-
 ## Platypus Overview
 
 <!-- BEGIN platypus-help -->
@@ -129,9 +128,9 @@ Configuration file (.gitsubtrees):
 Subtree commands manage Git subtrees - embedding external repositories as
 subdirectories in your monorepo. Configuration is stored in `.gitsubtrees`.
 
-### Conceptual Overview
+### Conceptual Overview (SVN)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          MONOREPO                                   │
 │  ┌──────────────────────────────────────────────────────────────┐   │
@@ -201,11 +200,13 @@ The `.gitsubtrees` file tracks three important SHA values for each subtree:
 to make it available as a standalone repository for external contributors.
 
 **Usage:**
+
 ```bash
 platypus subtree create <prefix> <upstream> [-b <branch>]
 ```
 
 **What it does:**
+
 1. Validates the directory exists
 2. Tests that the upstream repository is accessible
 3. Runs `git subtree split --prefix --rejoin` to extract history and create merge base
@@ -214,14 +215,16 @@ platypus subtree create <prefix> <upstream> [-b <branch>]
 6. Amends the rejoin commit to include config
 
 **Before:**
-```
+
+```text
 Mono:     A ─── B ─── C (contains lib/foo directory)
                                                      
 Upstream: (empty repo, waiting for content)          
 ```
 
 **After:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D (split --rejoin merge)
                            ╱
                     X ────┘  (extracted lib/foo history)
@@ -232,6 +235,7 @@ Config: upstream=X, preMergeParent=C, splitSha=X
 ```
 
 **Config state after `create`:**
+
 ```ini
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
@@ -252,11 +256,13 @@ Config: upstream=X, preMergeParent=C, splitSha=X
 pulls work correctly.
 
 **Usage:**
+
 ```bash
 platypus subtree init <prefix> [-r <remote>] [-b <branch>]
 ```
 
 **What it does:**
+
 1. Validates the directory exists
 2. Fetches from the upstream repository
 3. Merges with `--allow-unrelated-histories` to establish subtree relationship
@@ -264,14 +270,16 @@ platypus subtree init <prefix> [-r <remote>] [-b <branch>]
 5. Amends the merge commit to include config
 
 **Before:**
-```
+
+```text
 Mono:     A ─── B ─── C (contains lib/foo, unrelated to upstream)
                                                      
 Upstream: X ─── Y ─── Z (existing upstream content)
 ```
 
 **After:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D (Merge to establish relationship)
                            ╱
 Upstream: X ─── Y ─── Z ──┘
@@ -280,6 +288,7 @@ Config: upstream=Z, preMergeParent=C, splitSha=(none)
 ```
 
 **Config state after `init`:**
+
 ```ini
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
@@ -299,31 +308,36 @@ Config: upstream=Z, preMergeParent=C, splitSha=(none)
 monorepo. The directory doesn't exist yet - it will be created with the upstream content.
 
 **Usage:**
+
 ```bash
 platypus subtree add <prefix> <repo> [<ref>]
 ```
 
 **What it does:**
+
 1. Fetches the remote repository
 2. Adds the content at the specified prefix using `git subtree add`
 3. Creates configuration in `.gitsubtrees`
 4. Records the upstream commit SHA for tracking
 
 **Before:**
-```
+
+```text
 Mono:     A ─────────────────────────────────────
                                                   
 Upstream: X (content we want)                     
 ```
 
 **After:**
-```
+
+```text
 Mono:     A ───── B (Add lib/foo subtree)
                  /
 Upstream: X ────┘
 ```
 
 **Config state after `add`:**
+
 ```ini
 [subtree "lib/foo"]
     remote = git@github.com:owner/foo.git
@@ -340,18 +354,21 @@ Upstream: X ────┘
 **Purpose:** Pull upstream changes into the subtree.
 
 **Usage:**
+
 ```bash
 platypus subtree pull <prefix>
 ```
 
 **What it does:**
+
 1. Fetches from the configured remote
 2. Merges upstream changes into the subtree prefix using `git subtree merge`
 3. Updates the `upstream` and `parent` config values
 4. Amends the merge commit to include config changes
 
 **Before:**
-```
+
+```text
 Mono:     A ─── B ─── C (mono work)
              ╱
 Upstream: X ─── Y ─── Z (new commits)
@@ -360,7 +377,8 @@ Config: upstream=X, preMergeParent=A, splitSha=(none)
 ```
 
 **After:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D (Merge subtree from Z)
              ╱             ╱
 Upstream: X ─── Y ─── Z ──┘
@@ -372,10 +390,12 @@ Config: upstream=Z, preMergeParent=C, splitSha=(none)
 ```
 
 The merge commit D contains:
+
 - All files from Z in the `lib/foo/` prefix
 - Updated `.gitsubtrees` with new `upstream` and `preMergeParent` SHAs
 
 **Config changes:**
+
 | Field | Before | After |
 |-------|--------|-------|
 | `upstream` | X | Z (new upstream tip) |
@@ -389,18 +409,21 @@ The merge commit D contains:
 **Purpose:** Push local subtree changes to the upstream repository.
 
 **Usage:**
+
 ```bash
 platypus subtree push <prefix>
 ```
 
 **What it does:**
+
 1. Runs `git subtree split --rejoin` to extract subtree history
 2. Pushes the split branch to the upstream remote
 3. Records the `splitSha` for incremental optimization
 4. Amends the rejoin commit to include config update
 
 **Before:**
-```
+
+```text
 Mono:     A ─── B ─── C (changed lib/foo/file.txt)
              ╱
 Upstream: X ───────────
@@ -409,7 +432,8 @@ Config: upstream=X, preMergeParent=B, splitSha=(none)
 ```
 
 **The split operation extracts subtree commits:**
-```
+
+```text
 Full mono history:        Extracted subtree history:
 A ─── B ─── C             X ─── C' (just the lib/foo changes)
      ╱                         │
@@ -417,7 +441,8 @@ A ─── B ─── C             X ─── C' (just the lib/foo changes)
 ```
 
 **After:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D (rejoin merge)
              ╱             ╲
 Upstream: X ─────────────── C' (pushed)
@@ -434,6 +459,7 @@ The `--rejoin` creates a merge commit marking where we split. This makes
 subsequent pushes faster because `git subtree split` can skip already-processed history.
 
 **Config changes:**
+
 | Field | Before | After |
 |-------|--------|-------|
 | `upstream` | X | X (unchanged - we pushed TO upstream, not pulled) |
@@ -443,14 +469,16 @@ subsequent pushes faster because `git subtree split` can skip already-processed 
 **Why splitSha matters:**
 
 Without splitSha tracking (first push):
-```
+
+```bash
 git subtree split --prefix=lib/foo
 # Must walk ENTIRE repo history to find subtree commits
 # On a 50k commit repo, this can take minutes
 ```
 
 With splitSha tracking (subsequent pushes):
-```
+
+```bash
 git subtree split --prefix=lib/foo --rejoin
 # The --rejoin merge commit marks the split point
 # Subsequent splits only process new commits
@@ -464,18 +492,21 @@ git subtree split --prefix=lib/foo --rejoin
 **Purpose:** Bidirectional sync - pull then push.
 
 **Usage:**
+
 ```bash
 platypus subtree sync <prefix>
 ```
 
 **What it does:**
+
 1. Executes `subtree pull` (get upstream changes)
 2. Executes `subtree push` (send local changes)
 
 This is useful when both the monorepo and upstream have new commits.
 
 **Before (divergent state):**
-```
+
+```text
 Mono:     A ─── B ─── C (mono change)
              ╱
 Upstream: X ─── Y (upstream change)
@@ -484,7 +515,8 @@ Config: upstream=X, preMergeParent=A, splitSha=(none)
 ```
 
 **After pull phase:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D (merge from upstream)
              ╱             ╱
 Upstream: X ─── Y ────────┘
@@ -493,7 +525,8 @@ Config: upstream=Y, preMergeParent=C, splitSha=(none)
 ```
 
 **After push phase:**
-```
+
+```text
 Mono:     A ─── B ─── C ─── D ─── E (rejoin)
              ╱             ╱     ╲
 Upstream: X ─── Y ────────┴───── C' (mono change pushed)
@@ -512,6 +545,7 @@ Config: upstream=Y, preMergeParent=D, splitSha=C'
 | After push | Y | D | C' |
 
 After sync, both repos have all changes:
+
 - Upstream has: X → Y → C' (both upstream's Y and mono's C)
 - Mono has: merged Y from upstream, plus its own C
 
@@ -528,7 +562,7 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   pull              Pull latest changes from SVN into local mirror
-  push              Export origin/main commits to SVN and merge back (no git fetch/push)
+  push              Export origin/main commits to SVN and merge back (fetches origin, no git push)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -566,8 +600,7 @@ Examples:
   # Pull latest SVN changes
   platypus svn pull
 
-  # Push Git commits to SVN (assumes origin/main already fetched)
-  git fetch origin
+  # Push Git commits to SVN (auto-fetches origin)
   platypus svn push --verbose
 
   # Full workflow (fetch + SVN export + push origin)
@@ -592,9 +625,44 @@ Automation example:
 SVN commands sync the Git monorepo with an SVN repository using `git-svn`.
 Changes flow: Git → SVN, and SVN metadata flows back into Git.
 
+### Quick start (SVN)
+
+Source is always the cached `origin/main`; run `git fetch origin` if you need the latest before exporting.
+
+```bash
+# Manual control (SVN only, you push origin yourself)
+git fetch origin
+platypus svn push
+git push origin main
+
+# One-shot (full workflow)
+platypus svn sync
+```
+
+#### First sync scenarios
+
+- Fresh git-svn init, origin/main empty or only SVN mirror:
+  - `git svn init <svn-url>`; `git svn fetch`
+  - `git switch -C svn refs/remotes/git-svn`
+  - `git switch -C main svn` (if empty) and push once: `git push origin main`
+  - `git fetch origin`; run `platypus svn push` (or `platypus svn sync`)
+
+- Fresh git-svn init, origin/main already has commits:
+  - `git svn init <svn-url>`; `git svn fetch`
+  - `git switch -C svn refs/remotes/git-svn`
+  - Optionally merge `svn` into `main` if you need SVN tip included, then push
+  - `git fetch origin`; run `platypus svn push` (or `platypus svn sync`)
+
+### Push vs sync at a glance
+
+| Command | Fetch origin | SVN export | Local merge | Push origin | Best for |
+|---------|:------------:|:----------:|:-----------:|:-----------:|----------|
+| `svn push` | - | ✓ | ✓ | - | CI with pre-fetch, manual control |
+| `svn sync` | ✓ | ✓ | ✓ | ✓ | One-command convenience |
+
 ### Conceptual Overview
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────────────┐
 │                              GIT                                        │
 │                                                                         │
@@ -623,17 +691,20 @@ Changes flow: Git → SVN, and SVN metadata flows back into Git.
 **Purpose:** Pull latest changes from SVN into the local mirror.
 
 **Usage:**
+
 ```bash
 platypus svn pull
 ```
 
 **What it does:**
+
 1. Fetches latest state from the Git remote (for marker tracking)
 2. Pulls latest SVN changes using `git svn rebase`
 3. Reports how many commits are pending to push
 
 **Before:**
-```
+
+```text
 Git main:   A ─── B ─────────────────────
                                           
 SVN mirror: A ───────────────────────────
@@ -642,7 +713,8 @@ SVN trunk:  r1 ─── r2 (new SVN commit)
 ```
 
 **After:**
-```
+
+```text
 Git main:   A ─── B ─────────────────────
                                           
 SVN mirror: A ─── C (from r2) ───────────
@@ -658,16 +730,17 @@ The `svn` branch now has the new SVN revision as a Git commit.
 
 ### svn push
 
-**Purpose:** Export commits from `origin/main` to SVN and merge back locally. Does **not** fetch origin or push to origin.
+**Purpose:** Export commits from `origin/main` to SVN and merge back locally. Auto-fetches origin; does not push to origin.
 
 **Usage:**
+
 ```bash
-git fetch origin                     # keep origin/main current
-platypus svn push [--push-conflicts] # SVN export only
+platypus svn push [--push-conflicts]
 ```
 
 **What it does:**
-1. Uses cached `origin/main` as the source (no fetch)
+
+1. Fetches latest `origin/main`
 2. Updates the SVN mirror (`git svn rebase`)
 3. Ensures the marker branch exists
 4. Builds the export plan (first-parent only)
@@ -678,14 +751,15 @@ platypus svn push [--push-conflicts] # SVN export only
 9. Returns you to your original branch
 
 **Notes:**
-- Source is always `origin/main`; run `git fetch origin` first if you need the latest
+
+- Auto-fetches `origin/main` at the start
 - Does **not** push to origin; run `git push origin main` yourself after review
 
 **Why first-parent only?**
 
 When you have subtrees, their history lives "behind" merge commits:
 
-```
+```text
 main (first-parent path): A ─── B ─── C
                                 │
                                 └──┬── L1 ─── L2 (subtree history)
@@ -699,14 +773,16 @@ Walking all parents gives: A → B → L1 → L2 → C (5 commits)
 We only want to export the net changes, not replay subtree internal history.
 
 **Before:**
-```
+
+```text
 Git main:   A ─── B ─── C ──────────────── (marker at A)
                                            
 SVN trunk:  r1 ─────────────────────────── 
 ```
 
 **After:**
-```
+
+```text
 Git main:   A ─── B ─── C ─── D (merge SVN back)  (marker at C)
                              ╱                     
 SVN trunk:  r1 ─── r2 ─── r3 ────────────────────
@@ -723,19 +799,47 @@ The marker now points to C, and main has a merge commit with SVN metadata.
 **Purpose:** Full workflow convenience: fetch origin, export to SVN, merge back, and push `main` to origin.
 
 **Usage:**
+
 ```bash
 platypus svn sync [--push-conflicts]
 ```
 
 **What it does:**
+
 1. Fetches latest `origin/main`
 2. Runs the `svn push` pipeline described above
 3. Pushes `main` to origin
 
 **Typical workflow:**
+
 ```bash
 platypus svn sync              # full automation
 platypus svn sync --push-conflicts
+```
+
+#### Troubleshooting
+
+- Origin push rejected (non-fast-forward):
+
+```bash
+git fetch origin
+git rebase origin/main
+git push origin main
+```
+
+- SVN dcommit race (left in rebase with conflicts):
+
+```bash
+git status           # fix conflicts
+git add <files>
+git rebase --continue
+platypus svn push --continue
+```
+
+- Stale marker after rewritten history:
+
+```bash
+git push origin $(git merge-base origin/main svn):refs/heads/svn-marker --force
 ```
 
 ---
@@ -746,7 +850,7 @@ platypus svn sync --push-conflicts
 
 When both the monorepo and upstream have made changes since the last sync:
 
-```
+```text
 Mono:     ... ─── B ─── C (mono adds feature)
                  │
                  └── last sync point
@@ -759,14 +863,16 @@ Upstream: ... ─── X ─── Y (upstream fixes bug)
 **Resolution with `subtree sync`:**
 
 1. **Pull phase** merges Y into mono:
-   ```
+
+   ```text
    Mono: ... ─── B ─── C ─── D (merge)
                             ╱
    Upstream: X ─── Y ──────┘
    ```
 
 2. **Push phase** sends C to upstream:
-   ```
+
+   ```text
    Upstream: X ─── Y ─── C' (from mono's C)
    ```
 
@@ -777,6 +883,7 @@ After sync, both repos have both changes.
 **Subtree conflicts:**
 
 If pull creates conflicts:
+
 ```bash
 platypus subtree pull lib/foo
 # Conflict detected!
@@ -788,6 +895,7 @@ git commit
 **SVN conflicts:**
 
 If push fails to apply a patch:
+
 ```bash
 platypus svn push
 # Patch apply failed!
@@ -801,6 +909,7 @@ platypus svn push
 
 If someone else commits to SVN while you're pushing, `git svn dcommit` will fail
 and leave you in a rebase state with conflicts:
+
 ```bash
 platypus svn push
 # SVN dcommit failed: someone else committed to SVN (race condition).
@@ -817,6 +926,7 @@ platypus svn push
 ```
 
 The `--push-conflicts` option will:
+
 - Apply patches with conflict markers where needed
 - Automatically resolve dcommit race conditions by adding conflicts and continuing
 - Prefix commit messages with `[CONFLICT]`
@@ -842,7 +952,7 @@ Tracks subtree configuration (like `.gitmodules` for submodules):
 
 **Config field lifecycle:**
 
-```
+```text
                     ┌───────────────────────────────────────────────────────────┐
                     │                Config Field Updates                       │
                     ├─────────────┬─────────────┬─────────────┬─────────────────┤

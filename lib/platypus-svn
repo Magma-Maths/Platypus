@@ -146,7 +146,7 @@ Sync Git main branch to SVN without rewriting Git history.
 
 Commands:
   pull              Pull latest changes from SVN into local mirror
-  push              Export origin/main commits to SVN and merge back (no git fetch/push)
+  push              Export origin/main commits to SVN and merge back (fetches origin, no git push)
   sync              Full workflow: fetch origin, export to SVN, push origin
   --continue        Resume after resolving a conflict
   --abort           Abort in-progress operation and clean up
@@ -181,11 +181,10 @@ Conflict Tracking (for automation):
   - Conflicts are logged to CONFLICT_LOG file
 
 Examples:
-  # Pull latest SVN changes
+  # Pull latest SVN changes into origin/main (an attempt to provide a "git svn merge")
   platypus svn pull
 
-  # Push Git commits to SVN (assumes origin/main already fetched)
-  git fetch origin
+  # Push Git commits to SVN (auto-fetches origin)
   platypus svn push --verbose
 
   # Full workflow (fetch + SVN export + push origin)
@@ -912,8 +911,8 @@ pipeline:push() {
   o "Assert working tree is clean"
   git:assert-clean-worktree
   
-  # Step 1: Load remote tip from local refs (requires user to have fetched)
-  sync:set-tip-from-remote
+  # Step 1: Fetch latest Git state (sets TIP)
+  sync:fetch
   
   # Step 2: Update SVN mirror (ensure we have latest SVN state)
   sync:update-svn-mirror
