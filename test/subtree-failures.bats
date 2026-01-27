@@ -73,11 +73,10 @@ EOF
 
   make_git_wrapper_split_fail
 
-  run timeout 30 platypus subtree push lib/foo
+  run platypus subtree push lib/foo
   [ "$status" -ne 0 ]
   [[ "$output" == *"split"* ]] || [[ "$output" == *"subtree"* ]]
 
   split_after=$(git config -f .gitsubtrees subtree.lib/foo.splitSha 2>/dev/null || echo "")
   [ "$split_before" = "$split_after" ]
 }
-
