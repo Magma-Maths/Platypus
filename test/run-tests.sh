@@ -273,6 +273,8 @@ run_tests() {
     bats_args+=(--timing)
   fi
 
+  bats_args+=(--print-output-on-failure)
+
   if bats "${bats_args[@]}" test/; then
     success "All tests passed"
     return 0
@@ -316,4 +318,3 @@ main() {
 }
 
 main "$@"
-
