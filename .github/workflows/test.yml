@@ -29,7 +29,9 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install bats-core subversion git-svn
+        run: |
+          brew install bats-core subversion git-svn coreutils
+          echo "/opt/homebrew/opt/coreutils/libexec/gnubin" >> "$GITHUB_PATH"
 
       - name: Set up Git identity
         run: |
@@ -93,4 +95,3 @@ jobs:
       - name: Stop SVN server
         if: always()
         run: docker compose -f test/docker/svn-server/docker-compose.yml down -v
-
