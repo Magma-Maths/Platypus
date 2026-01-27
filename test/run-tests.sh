@@ -273,6 +273,12 @@ run_tests() {
     bats_args+=(--timing)
   fi
 
+  if [[ -n "${BATS_FORMATTER:-}" ]]; then
+    bats_args+=(--formatter "$BATS_FORMATTER")
+  elif [[ "${CI:-}" == "true" ]]; then
+    bats_args+=(--formatter tap)
+  fi
+
   bats_args+=(--print-output-on-failure)
 
   if bats "${bats_args[@]}" test/; then
